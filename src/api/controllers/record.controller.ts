@@ -6,36 +6,25 @@ import {
   Param,
   Query,
   Put,
-  InternalServerErrorException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
 import { Record } from '../schemas/record.schema';
-import { Model } from 'mongoose';
 import { ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
 import { RecordCategory, RecordFormat } from '../schemas/record.enum';
 import { UpdateRecordRequestDTO } from '../dtos/update-record.request.dto';
+import { RecordService } from '../services/record.service';
+import { FindRecordsQueryDTO } from '../dtos/find-records.query.dto';
 
 @Controller('records')
 export class RecordController {
-  constructor(
-    @InjectModel('Record') private readonly recordModel: Model<Record>,
-  ) {}
+  constructor(private readonly recordService: RecordService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new record' })
   @ApiResponse({ status: 201, description: 'Record successfully created' })
   @ApiResponse({ status: 400, description: 'Bad Request' })
   async create(@Body() request: CreateRecordRequestDTO): Promise<Record> {
-    return await this.recordModel.create({
-      artist: request.artist,
-      album: request.album,
-      price: request.price,
-      qty: request.qty,
-      format: request.format,
-      category: request.category,
-      mbid: request.mbid,
-    });
+    return this.recordService.create(request);
   }
 
   @Put(':id')
@@ -46,19 +35,7 @@ export class RecordController {
     @Param('id') id: string,
     @Body() updateRecordDto: UpdateRecordRequestDTO,
   ): Promise<Record> {
-    const record = await this.recordModel.findById(id);
-    if (!record) {
-      throw new InternalServerErrorException('Record not found');
-    }
-
-    Object.assign(record, updateRecordDto);
-
-    const updated = await this.recordModel.updateOne(record);
-    if (!updated) {
-      throw new InternalServerErrorException('Failed to update record');
-    }
-
-    return record;
+    return this.recordService.update(id, updateRecordDto);
   }
 
   @Get()
@@ -101,45 +78,27 @@ export class RecordController {
     enum: RecordCategory,
     type: String,
   })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Page number (reserved for paginated response in next phase)',
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Page size (reserved for paginated response in next phase)',
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'sort',
+    required: false,
+    description: 'Sort field (reserved for next phase)',
+    type: String,
+  })
   async findAll(
-    @Query('q') q?: string,
-    @Query('artist') artist?: string,
-    @Query('album') album?: string,
-    @Query('format') format?: RecordFormat,
-    @Query('category') category?: RecordCategory,
+    @Query() query: FindRecordsQueryDTO,
   ): Promise<Record[]> {
-    const allRecords = await this.recordModel.find().exec();
-
-    const filteredRecords = allRecords.filter((record) => {
-      let match = true;
-
-      if (q) {
-        match =
-          match &&
-          (record.artist.includes(q) ||
-            record.album.includes(q) ||
-            record.category.includes(q));
-      }
-
-      if (artist) {
-        match = match && record.artist.includes(artist);
-      }
-
-      if (album) {
-        match = match && record.album.includes(album);
-      }
-
-      if (format) {
-        match = match && record.format === format;
-      }
-
-      if (category) {
-        match = match && record.category === category;
-      }
-
-      return match;
-    });
-
-    return filteredRecords;
+    return this.recordService.findAll(query);
   }
 }
