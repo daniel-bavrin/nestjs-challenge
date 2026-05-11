@@ -7,6 +7,7 @@ import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
 import { RecordCategory, RecordFormat } from '../schemas/record.enum';
 import { NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { UpdateRecordRequestDTO } from '../dtos/update-record.request.dto';
+import { FindRecordsQueryDTO } from '../dtos/find-records.query.dto';
 
 describe('RecordService', () => {
   let recordService: RecordService;
@@ -22,6 +23,7 @@ describe('RecordService', () => {
             create: jest.fn(),
             findById: jest.fn(),
             find: jest.fn(),
+            countDocuments: jest.fn(),
           },
         },
       ],
@@ -100,19 +102,58 @@ describe('RecordService', () => {
       },
     ] as Record[];
 
-    jest.spyOn(recordModel, 'find').mockReturnValue({
+    const findChain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
       exec: jest.fn().mockResolvedValue(records),
-    } as unknown as ReturnType<Model<Record>['find']>);
+    };
 
-    const result = await recordService.findAll({
-      q: 'Abbey',
-      artist: 'Beatles',
-      album: 'Road',
+    const findSpy = jest.spyOn(recordModel, 'find').mockReturnValue(findChain as any);
+    const countDocumentsSpy = jest.spyOn(recordModel, 'countDocuments').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(1),
+    } as any);
+
+    const query = new FindRecordsQueryDTO();
+    query.q = 'Abbey';
+    query.artist = 'Beatles';
+    query.album = 'Road';
+    query.format = RecordFormat.VINYL;
+    query.category = RecordCategory.ROCK;
+    query.page = 2;
+    query.limit = 10;
+    query.sort = 'artist';
+
+    const result = await recordService.findAll(query);
+    const expectedFilter = {
+      $or: [
+        { artist: /Abbey/i },
+        { album: /Abbey/i },
+        { category: /Abbey/i },
+      ],
+      artist: /Beatles/i,
+      album: /Road/i,
       format: RecordFormat.VINYL,
       category: RecordCategory.ROCK,
-    });
+    };
 
-    expect(result).toHaveLength(1);
-    expect(result[0].artist).toBe('The Beatles');
+    expect(recordModel.find).toHaveBeenCalledWith(
+      expect.objectContaining(expectedFilter),
+    );
+    expect(countDocumentsSpy).toHaveBeenCalledWith(expectedFilter);
+    expect(findChain.sort).toHaveBeenCalledWith('artist');
+    expect(findChain.skip).toHaveBeenCalledWith(10);
+    expect(findChain.limit).toHaveBeenCalledWith(10);
+    expect(result).toEqual({
+      items: records,
+      meta: {
+        total: 1,
+        page: 2,
+        limit: 10,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPrevPage: true,
+      },
+    });
   });
 });

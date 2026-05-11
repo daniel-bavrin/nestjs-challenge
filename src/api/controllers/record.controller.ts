@@ -14,6 +14,7 @@ import { RecordCategory, RecordFormat } from '../schemas/record.enum';
 import { UpdateRecordRequestDTO } from '../dtos/update-record.request.dto';
 import { RecordService } from '../services/record.service';
 import { FindRecordsQueryDTO } from '../dtos/find-records.query.dto';
+import { FindRecordsResponseDTO } from '../dtos/find-records.response.dto';
 
 @Controller('records')
 export class RecordController {
@@ -42,8 +43,8 @@ export class RecordController {
   @ApiOperation({ summary: 'Get all records with optional filters' })
   @ApiResponse({
     status: 200,
-    description: 'List of records',
-    type: [Record],
+    description: 'Paginated list of records',
+    type: FindRecordsResponseDTO,
   })
   @ApiQuery({
     name: 'q',
@@ -81,24 +82,24 @@ export class RecordController {
   @ApiQuery({
     name: 'page',
     required: false,
-    description: 'Page number (reserved for paginated response in next phase)',
+    description: 'Page number',
     type: Number,
   })
   @ApiQuery({
     name: 'limit',
     required: false,
-    description: 'Page size (reserved for paginated response in next phase)',
+    description: 'Page size',
     type: Number,
   })
   @ApiQuery({
     name: 'sort',
     required: false,
-    description: 'Sort field (reserved for next phase)',
+    description: 'Sort field',
     type: String,
   })
   async findAll(
     @Query() query: FindRecordsQueryDTO,
-  ): Promise<Record[]> {
+  ): Promise<FindRecordsResponseDTO> {
     return this.recordService.findAll(query);
   }
 }

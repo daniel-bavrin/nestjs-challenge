@@ -4,11 +4,26 @@ import {
 	NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { FilterQuery, Model } from 'mongoose';
 import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
+import { FindRecordsQueryDTO } from '../dtos/find-records.query.dto';
 import { UpdateRecordRequestDTO } from '../dtos/update-record.request.dto';
 import { RecordCategory, RecordFormat } from '../schemas/record.enum';
 import { Record } from '../schemas/record.schema';
+
+export interface PaginatedRecordsMeta {
+	total: number;
+	page: number;
+	limit: number;
+	totalPages: number;
+	hasNextPage: boolean;
+	hasPrevPage: boolean;
+}
+
+export interface PaginatedRecordsResponse {
+	items: Record[];
+	meta: PaginatedRecordsMeta;
+}
 
 @Injectable()
 export class RecordService {
@@ -41,43 +56,71 @@ export class RecordService {
 		}
 	}
 
-	async findAll(filters: {
-		q?: string;
-		artist?: string;
-		album?: string;
-		format?: RecordFormat;
-		category?: RecordCategory;
-	}): Promise<Record[]> {
-		const allRecords = await this.recordModel.find().exec();
+	async findAll(query: FindRecordsQueryDTO): Promise<PaginatedRecordsResponse> {
+		const filter = this.buildFilter(query);
+		const page = query.page ?? 1;
+		const limit = query.limit ?? 20;
+		const sort = query.sort ?? '-createdAt';
+		const skip = (page - 1) * limit;
 
-		return allRecords.filter((record) => {
-			let match = true;
+		const [items, total] = await Promise.all([
+			this.recordModel
+				.find(filter)
+				.sort(sort)
+				.skip(skip)
+				.limit(limit)
+				.exec(),
+			this.recordModel.countDocuments(filter).exec(),
+		]);
 
-			if (filters.q) {
-				match =
-					match &&
-					(record.artist.includes(filters.q) ||
-						record.album.includes(filters.q) ||
-						record.category.includes(filters.q));
-			}
+		const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
 
-			if (filters.artist) {
-				match = match && record.artist.includes(filters.artist);
-			}
+		return {
+			items,
+			meta: {
+				total,
+				page,
+				limit,
+				totalPages,
+				hasNextPage: page < totalPages,
+				hasPrevPage: page > 1,
+			},
+		};
+	}
 
-			if (filters.album) {
-				match = match && record.album.includes(filters.album);
-			}
+	private buildFilter(query: FindRecordsQueryDTO): FilterQuery<Record> {
+		const filter: FilterQuery<Record> = {};
 
-			if (filters.format) {
-				match = match && record.format === filters.format;
-			}
+		if (query.q) {
+			const qRegex = this.buildRegex(query.q);
+			filter.$or = [
+				{ artist: qRegex },
+				{ album: qRegex },
+				{ category: qRegex },
+			];
+		}
 
-			if (filters.category) {
-				match = match && record.category === filters.category;
-			}
+		if (query.artist) {
+			filter.artist = this.buildRegex(query.artist);
+		}
 
-			return match;
-		});
+		if (query.album) {
+			filter.album = this.buildRegex(query.album);
+		}
+
+		if (query.format) {
+			filter.format = query.format;
+		}
+
+		if (query.category) {
+			filter.category = query.category;
+		}
+
+		return filter;
+	}
+
+	private buildRegex(value: string): RegExp {
+		const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		return new RegExp(escaped, 'i');
 	}
 }

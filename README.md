@@ -94,6 +94,28 @@ npm run test:e2e
 ```
 Run Tests with Coverage
 
+### TypeScript Config Separation
+This project uses separate TypeScript configs for application/runtime code and tests:
+
+- `tsconfig.json`: base app/dev config (Node types only)
+- `tsconfig.build.json`: production build config (excludes tests)
+- `tsconfig.spec.json`: test config (Jest + Node types for unit/e2e specs)
+
+Jest and e2e Jest are configured to compile tests using `tsconfig.spec.json`.
+
+### Type Checking
+Type-check app/runtime code:
+
+```
+npm run typecheck
+```
+
+Type-check test code:
+
+```
+npm run typecheck:test
+```
+
 
 Run Linting
 To check if your code passes ESLint checks:
