@@ -5,7 +5,10 @@ import { RecordService } from './record.service';
 import { Record } from '../schemas/record.schema';
 import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
 import { RecordCategory, RecordFormat } from '../schemas/record.enum';
-import { NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import {
+  NotFoundException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { UpdateRecordRequestDTO } from '../dtos/update-record.request.dto';
 import { FindRecordsQueryDTO } from '../dtos/find-records.query.dto';
 
@@ -64,11 +67,15 @@ describe('RecordService', () => {
 
     expect(recordModel.findById).toHaveBeenCalledWith('1');
     expect(result).toEqual({ _id: '1', qty: 5 });
-    expect((savedRecord as unknown as { save: jest.Mock }).save).toHaveBeenCalled();
+    expect(
+      (savedRecord as unknown as { save: jest.Mock }).save,
+    ).toHaveBeenCalled();
   });
 
   it('throws NotFoundException when updating a missing record', async () => {
-    jest.spyOn(recordModel, 'findById').mockResolvedValue(null as unknown as Record);
+    jest
+      .spyOn(recordModel, 'findById')
+      .mockResolvedValue(null as unknown as Record);
 
     await expect(recordService.update('missing', {})).rejects.toBeInstanceOf(
       NotFoundException,
@@ -109,10 +116,12 @@ describe('RecordService', () => {
       exec: jest.fn().mockResolvedValue(records),
     };
 
-    const findSpy = jest.spyOn(recordModel, 'find').mockReturnValue(findChain as any);
-    const countDocumentsSpy = jest.spyOn(recordModel, 'countDocuments').mockReturnValue({
-      exec: jest.fn().mockResolvedValue(1),
-    } as any);
+    jest.spyOn(recordModel, 'find').mockReturnValue(findChain as any);
+    const countDocumentsSpy = jest
+      .spyOn(recordModel, 'countDocuments')
+      .mockReturnValue({
+        exec: jest.fn().mockResolvedValue(1),
+      } as any);
 
     const query = new FindRecordsQueryDTO();
     query.q = 'Abbey';
@@ -126,11 +135,7 @@ describe('RecordService', () => {
 
     const result = await recordService.findAll(query);
     const expectedFilter = {
-      $or: [
-        { artist: /Abbey/i },
-        { album: /Abbey/i },
-        { category: /Abbey/i },
-      ],
+      $or: [{ artist: /Abbey/i }, { album: /Abbey/i }, { category: /Abbey/i }],
       artist: /Beatles/i,
       album: /Road/i,
       format: RecordFormat.VINYL,

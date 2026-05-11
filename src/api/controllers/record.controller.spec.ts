@@ -51,7 +51,9 @@ describe('RecordController', () => {
       format: RecordFormat.VINYL,
     };
 
-    jest.spyOn(recordService, 'create').mockResolvedValue(savedRecord as Record);
+    jest
+      .spyOn(recordService, 'create')
+      .mockResolvedValue(savedRecord as Record);
 
     const result = await recordController.create(createRecordDto);
     expect(result).toEqual(savedRecord);
@@ -76,9 +78,7 @@ describe('RecordController', () => {
       },
     };
 
-    jest
-      .spyOn(recordService, 'findAll')
-      .mockResolvedValue(response);
+    jest.spyOn(recordService, 'findAll').mockResolvedValue(response);
 
     const result = await recordController.findAll(query);
     expect(result).toEqual(response);

@@ -9,7 +9,10 @@ describe('RecordSchema', () => {
       expect.arrayContaining([
         [
           { artist: 1, album: 1, format: 1 },
-          expect.objectContaining({ unique: true, name: 'uq_record_artist_album_format' }),
+          expect.objectContaining({
+            unique: true,
+            name: 'uq_record_artist_album_format',
+          }),
         ],
         [{ artist: 1 }, expect.objectContaining({ background: true })],
         [{ album: 1 }, expect.objectContaining({ background: true })],

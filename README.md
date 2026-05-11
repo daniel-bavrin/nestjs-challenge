@@ -116,6 +116,23 @@ Type-check test code:
 npm run typecheck:test
 ```
 
+### Git Hooks (Pre-commit)
+This project uses Husky to run checks before every commit.
+
+On `git commit`, the pre-commit hook runs:
+
+```
+npm run lint && npm run test
+```
+
+If one of these fails, the commit is blocked.
+
+If hooks are not installed yet, run:
+
+```
+npm run prepare
+```
+
 
 Run Linting
 To check if your code passes ESLint checks:
