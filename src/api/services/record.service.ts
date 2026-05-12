@@ -9,6 +9,7 @@ import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
 import { FindRecordsQueryDTO } from '../dtos/find-records.query.dto';
 import { UpdateRecordRequestDTO } from '../dtos/update-record.request.dto';
 import { Record } from '../schemas/record.schema';
+import { MusicbrainzService } from './musicbrainz.service';
 
 export interface PaginatedRecordsMeta {
   total: number;
@@ -28,9 +29,14 @@ export interface PaginatedRecordsResponse {
 export class RecordService {
   constructor(
     @InjectModel('Record') private readonly recordModel: Model<Record>,
+    private readonly musicbrainzService: MusicbrainzService,
   ) {}
 
   async create(request: CreateRecordRequestDTO): Promise<Record> {
+    const tracklist = request.mbid
+      ? await this.musicbrainzService.fetchTracklistByMbid(request.mbid)
+      : [];
+
     return this.recordModel.create({
       artist: request.artist,
       album: request.album,
@@ -39,6 +45,7 @@ export class RecordService {
       format: request.format,
       category: request.category,
       mbid: request.mbid,
+      tracklist,
     });
   }
 
@@ -49,6 +56,21 @@ export class RecordService {
     const record = await this.recordModel.findById(id);
     if (!record) {
       throw new NotFoundException('Record not found');
+    }
+
+    const hasMbidField = Object.prototype.hasOwnProperty.call(
+      updateRecordDto,
+      'mbid',
+    );
+
+    if (hasMbidField) {
+      const nextMbid = updateRecordDto.mbid?.trim();
+      if (!nextMbid) {
+        record.tracklist = [];
+      } else if (nextMbid !== record.mbid) {
+        record.tracklist =
+          await this.musicbrainzService.fetchTracklistByMbid(nextMbid);
+      }
     }
 
     Object.assign(record, updateRecordDto);
