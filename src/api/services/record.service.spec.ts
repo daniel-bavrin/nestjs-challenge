@@ -17,11 +17,13 @@ import {
   FETCH_TRACKLIST_JOB,
   TRACKLIST_QUEUE,
 } from '../jobs/tracklist-queue.constants';
+import { RecordListCacheService } from './record-list-cache.service';
 
 describe('RecordService', () => {
   let recordService: RecordService;
   let recordModel: Model<Record>;
   let tracklistQueue: Queue;
+  let recordListCacheService: RecordListCacheService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -43,12 +45,23 @@ describe('RecordService', () => {
             countDocuments: jest.fn(),
           },
         },
+        {
+          provide: RecordListCacheService,
+          useValue: {
+            get: jest.fn().mockResolvedValue(null),
+            set: jest.fn().mockResolvedValue(undefined),
+            invalidateAll: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
     recordService = module.get<RecordService>(RecordService);
     recordModel = module.get<Model<Record>>(getModelToken('Record'));
     tracklistQueue = module.get<Queue>(getQueueToken(TRACKLIST_QUEUE));
+    recordListCacheService = module.get<RecordListCacheService>(
+      RecordListCacheService,
+    );
   });
 
   it('creates a record with the expected mapped fields', async () => {
@@ -94,6 +107,7 @@ describe('RecordService', () => {
       ...request,
       tracklist: [],
     });
+    expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
   });
 
   it('creates a record with empty tracklist when mbid is not provided', async () => {
@@ -116,6 +130,7 @@ describe('RecordService', () => {
       ...request,
       tracklist: [],
     });
+    expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
   });
 
   it('updates an existing record', async () => {
@@ -150,6 +165,7 @@ describe('RecordService', () => {
       (savedRecord as unknown as { save: jest.Mock }).save,
     ).toHaveBeenCalled();
     expect(tracklistQueue.add).not.toHaveBeenCalled();
+    expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
   });
 
   it('enqueues tracklist refresh when mbid changes on update', async () => {
@@ -285,6 +301,47 @@ describe('RecordService', () => {
         hasPrevPage: true,
       },
     });
+    expect(recordListCacheService.set).toHaveBeenCalledWith(
+      'v1',
+      {
+        q: 'Abbey',
+        artist: 'Beatles',
+        album: 'Road',
+        format: RecordFormat.VINYL,
+        category: RecordCategory.ROCK,
+        page: 2,
+        limit: 10,
+        sort: 'artist',
+      },
+      result,
+    );
+  });
+
+  it('returns cached v1 list response when available', async () => {
+    const query = new FindRecordsQueryDTO();
+    query.artist = 'Beatles';
+
+    const cachedResponse = {
+      items: [],
+      meta: {
+        total: 0,
+        page: 1,
+        limit: 20,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
+    };
+
+    jest
+      .spyOn(recordListCacheService, 'get')
+      .mockResolvedValueOnce(cachedResponse as any);
+
+    const result = await recordService.findAll(query);
+
+    expect(result).toEqual(cachedResponse);
+    expect(recordModel.find).not.toHaveBeenCalled();
+    expect(recordModel.countDocuments).not.toHaveBeenCalled();
   });
 
   it('maps v0 sort fields to canonical timestamp fields', async () => {
@@ -402,6 +459,7 @@ describe('RecordService', () => {
     });
     expect((record as any).deletedAt).toBeInstanceOf(Date);
     expect(saveMock).toHaveBeenCalled();
+    expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
   });
 
   it('throws NotFoundException when soft-deleting a missing or already-deleted record', async () => {

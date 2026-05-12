@@ -8,6 +8,7 @@ import { Model } from 'mongoose';
 import { CreateOrderRequestDTO } from '../dtos/create-order.request.dto';
 import { Order } from '../schemas/order.schema';
 import { Record } from '../schemas/record.schema';
+import { RecordListCacheService } from './record-list-cache.service';
 
 export interface OrderResponse extends Order {
   created: Date;
@@ -19,6 +20,7 @@ export class OrderService {
   constructor(
     @InjectModel('Order') private readonly orderModel: Model<Order>,
     @InjectModel('Record') private readonly recordModel: Model<Record>,
+    private readonly recordListCacheService: RecordListCacheService,
   ) {}
 
   async create(request: CreateOrderRequestDTO): Promise<OrderResponse> {
@@ -59,6 +61,8 @@ export class OrderService {
       unitPrice,
       totalPrice,
     });
+
+    await this.recordListCacheService.invalidateAll();
 
     return this.mapTimestamps(createdOrder);
   }

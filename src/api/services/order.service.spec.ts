@@ -6,11 +6,13 @@ import { CreateOrderRequestDTO } from '../dtos/create-order.request.dto';
 import { Order } from '../schemas/order.schema';
 import { Record } from '../schemas/record.schema';
 import { OrderService } from './order.service';
+import { RecordListCacheService } from './record-list-cache.service';
 
 describe('OrderService', () => {
   let orderService: OrderService;
   let orderModel: Model<Order>;
   let recordModel: Model<Record>;
+  let recordListCacheService: RecordListCacheService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -29,12 +31,21 @@ describe('OrderService', () => {
             findOne: jest.fn(),
           },
         },
+        {
+          provide: RecordListCacheService,
+          useValue: {
+            invalidateAll: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
     orderService = module.get<OrderService>(OrderService);
     orderModel = module.get<Model<Order>>(getModelToken('Order'));
     recordModel = module.get<Model<Record>>(getModelToken('Record'));
+    recordListCacheService = module.get<RecordListCacheService>(
+      RecordListCacheService,
+    );
   });
 
   it('creates an order and atomically decrements stock when quantity is available', async () => {
@@ -88,6 +99,7 @@ describe('OrderService', () => {
     });
     expect(result).toHaveProperty('created');
     expect(result).toHaveProperty('lastModified');
+    expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
   });
 
   it('throws NotFoundException when record does not exist', async () => {

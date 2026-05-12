@@ -8,6 +8,7 @@ import { OrderV1Controller } from './controllers/order.v1.controller';
 import { MusicbrainzService } from './services/musicbrainz.service';
 import { RecordService } from './services/record.service';
 import { OrderService } from './services/order.service';
+import { RecordListCacheService } from './services/record-list-cache.service';
 import { RecordSchema } from './schemas/record.schema';
 import { OrderSchema } from './schemas/order.schema';
 import { TracklistProcessor } from './jobs/tracklist.processor';
@@ -32,6 +33,7 @@ import { AppConfig } from '../app.config';
   providers: [
     RecordService,
     OrderService,
+    RecordListCacheService,
     MusicbrainzService,
     TracklistProcessor,
     {
