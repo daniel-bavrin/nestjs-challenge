@@ -298,4 +298,65 @@ describe('RecordService', () => {
 
     expect(findChain.sort).toHaveBeenCalledWith('-updatedAt');
   });
+
+  it('creates v0 response without tracklist', async () => {
+    const request: CreateRecordRequestDTO = {
+      artist: 'The Beatles',
+      album: 'Abbey Road',
+      price: 25,
+      qty: 10,
+      format: RecordFormat.VINYL,
+      category: RecordCategory.ROCK,
+    };
+
+    jest.spyOn(recordService, 'create').mockResolvedValue({
+      _id: '1',
+      ...request,
+      tracklist: [{ position: 1, title: 'Come Together' }],
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+      created: new Date('2026-01-01T00:00:00.000Z'),
+      lastModified: new Date('2026-01-02T00:00:00.000Z'),
+    } as any);
+
+    const result = await recordService.createV0(request);
+
+    expect(result).not.toHaveProperty('tracklist');
+    expect(result).toHaveProperty('artist', request.artist);
+  });
+
+  it('returns v0 list shape without tracklist and pagination', async () => {
+    const records = [
+      {
+        toObject: jest.fn().mockReturnValue({
+          _id: '1',
+          artist: 'The Beatles',
+          album: 'Abbey Road',
+          price: 25,
+          qty: 10,
+          format: RecordFormat.VINYL,
+          category: RecordCategory.ROCK,
+          tracklist: [{ position: 1, title: 'Come Together' }],
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+        }),
+      },
+    ] as unknown as Record[];
+
+    jest.spyOn(recordModel, 'find').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(records),
+    } as any);
+
+    const result = await recordService.findAllV0({
+      artist: 'Beatles',
+    });
+
+    expect(recordModel.find).toHaveBeenCalledWith({
+      artist: /Beatles/i,
+    });
+    expect(Array.isArray(result)).toBe(true);
+    expect(result[0]).not.toHaveProperty('tracklist');
+    expect(result[0]).toHaveProperty('created');
+    expect(result[0]).toHaveProperty('lastModified');
+  });
 });

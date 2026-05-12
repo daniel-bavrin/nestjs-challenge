@@ -25,6 +25,13 @@ export interface RecordResponse extends Record {
   lastModified: Date;
 }
 
+export type RecordResponseV0 = Omit<RecordResponse, 'tracklist'>;
+
+type RecordFilterFields = Pick<
+  FindRecordsQueryDTO,
+  'q' | 'artist' | 'album' | 'format' | 'category'
+>;
+
 export interface PaginatedRecordsResponse {
   items: RecordResponse[];
   meta: PaginatedRecordsMeta;
@@ -54,6 +61,11 @@ export class RecordService {
     });
 
     return this.mapTimestamps(createdRecord);
+  }
+
+  async createV0(request: CreateRecordRequestDTO): Promise<RecordResponseV0> {
+    const created = await this.create(request);
+    return this.removeTracklist(created);
   }
 
   async update(
@@ -90,6 +102,14 @@ export class RecordService {
     }
   }
 
+  async updateV0(
+    id: string,
+    updateRecordDto: UpdateRecordRequestDTO,
+  ): Promise<RecordResponseV0> {
+    const updated = await this.update(id, updateRecordDto);
+    return this.removeTracklist(updated);
+  }
+
   async findAll(query: FindRecordsQueryDTO): Promise<PaginatedRecordsResponse> {
     const filter = this.buildFilter(query);
     const page = query.page ?? 1;
@@ -117,7 +137,14 @@ export class RecordService {
     };
   }
 
-  private buildFilter(query: FindRecordsQueryDTO): FilterQuery<Record> {
+  async findAllV0(query: RecordFilterFields): Promise<RecordResponseV0[]> {
+    const filter = this.buildFilter(query);
+    const items = await this.recordModel.find(filter).exec();
+
+    return items.map((item) => this.removeTracklist(this.mapTimestamps(item)));
+  }
+
+  private buildFilter(query: RecordFilterFields): FilterQuery<Record> {
     const filter: FilterQuery<Record> = {};
 
     if (query.q) {
@@ -180,5 +207,13 @@ export class RecordService {
     output.lastModified = output.updatedAt;
 
     return output;
+  }
+
+  private removeTracklist(record: RecordResponse): RecordResponseV0 {
+    const v0Shape = { ...record } as RecordResponse & {
+      tracklist?: RecordResponse['tracklist'];
+    };
+    delete v0Shape.tracklist;
+    return v0Shape as RecordResponseV0;
   }
 }

@@ -1,9 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { RecordController } from './record.controller';
+import { RecordV1Controller } from './record.v1.controller';
 import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
 import { RecordCategory, RecordFormat } from '../schemas/record.enum';
-import { RecordResponseV0, RecordService } from '../services/record.service';
+import {
+  PaginatedRecordsResponse,
+  RecordResponse,
+  RecordService,
+} from '../services/record.service';
 import { UpdateRecordRequestDTO } from '../dtos/update-record.request.dto';
+import { FindRecordsQueryDTO } from '../dtos/find-records.query.dto';
 
 const timestamps = {
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -12,26 +17,26 @@ const timestamps = {
   lastModified: new Date('2026-01-02T00:00:00.000Z'),
 };
 
-describe('RecordController', () => {
-  let recordController: RecordController;
+describe('RecordV1Controller', () => {
+  let recordController: RecordV1Controller;
   let recordService: RecordService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      controllers: [RecordController],
+      controllers: [RecordV1Controller],
       providers: [
         {
           provide: RecordService,
           useValue: {
-            createV0: jest.fn(),
-            updateV0: jest.fn(),
-            findAllV0: jest.fn(),
+            create: jest.fn(),
+            update: jest.fn(),
+            findAll: jest.fn(),
           },
         },
       ],
     }).compile();
 
-    recordController = module.get<RecordController>(RecordController);
+    recordController = module.get<RecordV1Controller>(RecordV1Controller);
     recordService = module.get<RecordService>(RecordService);
   });
 
@@ -45,7 +50,7 @@ describe('RecordController', () => {
       category: RecordCategory.ALTERNATIVE,
     };
 
-    const savedRecord: RecordResponseV0 = {
+    const savedRecord: RecordResponse = {
       _id: '1',
       artist: 'Test',
       album: 'Test Record',
@@ -53,18 +58,20 @@ describe('RecordController', () => {
       qty: 10,
       category: RecordCategory.ALTERNATIVE,
       format: RecordFormat.VINYL,
+      tracklist: [],
       ...timestamps,
-    } as unknown as RecordResponseV0;
+    } as unknown as RecordResponse;
 
-    jest.spyOn(recordService, 'createV0').mockResolvedValue(savedRecord);
+    jest.spyOn(recordService, 'create').mockResolvedValue(savedRecord);
 
     const result = await recordController.create(createRecordDto);
     expect(result).toEqual(savedRecord);
-    expect(recordService.createV0).toHaveBeenCalledWith(createRecordDto);
+    expect(recordService.create).toHaveBeenCalledWith(createRecordDto);
   });
 
-  it('should return an array of records', async () => {
-    const items: RecordResponseV0[] = [
+  it('should return a paginated response', async () => {
+    const query = new FindRecordsQueryDTO();
+    const items: RecordResponse[] = [
       {
         _id: '1',
         artist: 'A',
@@ -73,6 +80,7 @@ describe('RecordController', () => {
         qty: 10,
         category: RecordCategory.ROCK,
         format: RecordFormat.VINYL,
+        tracklist: [],
         ...timestamps,
       },
       {
@@ -83,34 +91,34 @@ describe('RecordController', () => {
         qty: 20,
         category: RecordCategory.JAZZ,
         format: RecordFormat.CD,
+        tracklist: [],
         ...timestamps,
       },
-    ] as unknown as RecordResponseV0[];
+    ] as unknown as RecordResponse[];
+    const response: PaginatedRecordsResponse = {
+      items,
+      meta: {
+        total: 2,
+        page: 1,
+        limit: 20,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
+    };
 
-    jest.spyOn(recordService, 'findAllV0').mockResolvedValue(items);
+    jest.spyOn(recordService, 'findAll').mockResolvedValue(response);
 
-    const result = await recordController.findAll(
-      'query',
-      'artist',
-      'album',
-      RecordFormat.VINYL,
-      RecordCategory.ROCK,
-    );
-    expect(result).toEqual(items);
-    expect(recordService.findAllV0).toHaveBeenCalledWith({
-      q: 'query',
-      artist: 'artist',
-      album: 'album',
-      format: RecordFormat.VINYL,
-      category: RecordCategory.ROCK,
-    });
+    const result = await recordController.findAll(query);
+    expect(result).toEqual(response);
+    expect(recordService.findAll).toHaveBeenCalledWith(query);
   });
 
   it('should update an existing record', async () => {
     const updateDto: UpdateRecordRequestDTO = {
       qty: 5,
     };
-    const updatedRecord: RecordResponseV0 = {
+    const updatedRecord: RecordResponse = {
       _id: '1',
       artist: 'Test',
       album: 'Test Record',
@@ -118,13 +126,14 @@ describe('RecordController', () => {
       qty: 5,
       category: RecordCategory.ALTERNATIVE,
       format: RecordFormat.VINYL,
+      tracklist: [],
       ...timestamps,
-    } as unknown as RecordResponseV0;
+    } as unknown as RecordResponse;
 
-    jest.spyOn(recordService, 'updateV0').mockResolvedValue(updatedRecord);
+    jest.spyOn(recordService, 'update').mockResolvedValue(updatedRecord);
 
     const result = await recordController.update('1', updateDto);
     expect(result).toEqual(updatedRecord);
-    expect(recordService.updateV0).toHaveBeenCalledWith('1', updateDto);
+    expect(recordService.update).toHaveBeenCalledWith('1', updateDto);
   });
 });

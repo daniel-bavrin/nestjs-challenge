@@ -3,10 +3,12 @@ import { ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
 import { RecordCategory, RecordFormat } from '../schemas/record.enum';
 import { UpdateRecordRequestDTO } from '../dtos/update-record.request.dto';
-import { RecordResponseV0, RecordService } from '../services/record.service';
+import { RecordResponse, RecordService } from '../services/record.service';
+import { FindRecordsQueryDTO } from '../dtos/find-records.query.dto';
+import { FindRecordsResponseDTO } from '../dtos/find-records.response.dto';
 
-@Controller('records')
-export class RecordController {
+@Controller('v1/records')
+export class RecordV1Controller {
   constructor(private readonly recordService: RecordService) {}
 
   @Post()
@@ -15,8 +17,8 @@ export class RecordController {
   @ApiResponse({ status: 400, description: 'Bad Request' })
   async create(
     @Body() request: CreateRecordRequestDTO,
-  ): Promise<RecordResponseV0> {
-    return this.recordService.createV0(request);
+  ): Promise<RecordResponse> {
+    return this.recordService.create(request);
   }
 
   @Put(':id')
@@ -26,15 +28,16 @@ export class RecordController {
   async update(
     @Param('id') id: string,
     @Body() updateRecordDto: UpdateRecordRequestDTO,
-  ): Promise<RecordResponseV0> {
-    return this.recordService.updateV0(id, updateRecordDto);
+  ): Promise<RecordResponse> {
+    return this.recordService.update(id, updateRecordDto);
   }
 
   @Get()
   @ApiOperation({ summary: 'Get all records with optional filters' })
   @ApiResponse({
     status: 200,
-    description: 'List of records',
+    description: 'Paginated list of records',
+    type: FindRecordsResponseDTO,
   })
   @ApiQuery({
     name: 'q',
@@ -69,19 +72,27 @@ export class RecordController {
     enum: RecordCategory,
     type: String,
   })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Page number',
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Page size',
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'sort',
+    required: false,
+    description: 'Sort field',
+    type: String,
+  })
   async findAll(
-    @Query('q') q?: string,
-    @Query('artist') artist?: string,
-    @Query('album') album?: string,
-    @Query('format') format?: RecordFormat,
-    @Query('category') category?: RecordCategory,
-  ): Promise<RecordResponseV0[]> {
-    return this.recordService.findAllV0({
-      q,
-      artist,
-      album,
-      format,
-      category,
-    });
+    @Query() query: FindRecordsQueryDTO,
+  ): Promise<FindRecordsResponseDTO> {
+    return this.recordService.findAll(query);
   }
 }
