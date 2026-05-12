@@ -2,6 +2,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Post,
   Body,
@@ -15,12 +16,21 @@ import { RecordCategory, RecordFormat } from '../schemas/record.enum';
 import { UpdateRecordRequestDTO } from '../dtos/update-record.request.dto';
 import { RecordResponseV0, RecordService } from '../services/record.service';
 
+const V0_SUNSET = 'Wed, 31 Dec 2026 23:59:59 GMT';
+const V0_SUCCESSOR_LINK = '</v1/records>; rel="successor-version"';
+const V0_DEPRECATION_MESSAGE =
+  'API v0 is deprecated and will be removed after the sunset date. Migrate to /v1/records.';
+
 @Controller('records')
 export class RecordController {
   constructor(private readonly recordService: RecordService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a new record' })
+  @Header('Deprecation', 'true')
+  @Header('Sunset', V0_SUNSET)
+  @Header('Link', V0_SUCCESSOR_LINK)
+  @Header('X-API-Warn', V0_DEPRECATION_MESSAGE)
+  @ApiOperation({ summary: 'Create a new record', deprecated: true })
   @ApiResponse({ status: 201, description: 'Record successfully created' })
   @ApiResponse({ status: 400, description: 'Bad Request' })
   async create(
@@ -30,7 +40,11 @@ export class RecordController {
   }
 
   @Put(':id')
-  @ApiOperation({ summary: 'Update an existing record' })
+  @Header('Deprecation', 'true')
+  @Header('Sunset', V0_SUNSET)
+  @Header('Link', V0_SUCCESSOR_LINK)
+  @Header('X-API-Warn', V0_DEPRECATION_MESSAGE)
+  @ApiOperation({ summary: 'Update an existing record', deprecated: true })
   @ApiResponse({ status: 200, description: 'Record updated successfully' })
   @ApiResponse({ status: 500, description: 'Cannot find record to update' })
   async update(
@@ -42,7 +56,11 @@ export class RecordController {
 
   @Delete(':id')
   @HttpCode(204)
-  @ApiOperation({ summary: 'Soft-delete a record' })
+  @Header('Deprecation', 'true')
+  @Header('Sunset', V0_SUNSET)
+  @Header('Link', V0_SUCCESSOR_LINK)
+  @Header('X-API-Warn', V0_DEPRECATION_MESSAGE)
+  @ApiOperation({ summary: 'Soft-delete a record', deprecated: true })
   @ApiResponse({ status: 204, description: 'Record deleted' })
   @ApiResponse({ status: 404, description: 'Record not found' })
   async remove(@Param('id') id: string): Promise<void> {
@@ -50,7 +68,11 @@ export class RecordController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all records with optional filters' })
+  @Header('Deprecation', 'true')
+  @Header('Sunset', V0_SUNSET)
+  @Header('Link', V0_SUCCESSOR_LINK)
+  @Header('X-API-Warn', V0_DEPRECATION_MESSAGE)
+  @ApiOperation({ summary: 'Get all records with optional filters', deprecated: true })
   @ApiResponse({
     status: 200,
     description: 'List of records',
