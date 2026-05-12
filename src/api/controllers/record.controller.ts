@@ -72,7 +72,10 @@ export class RecordController {
   @Header('Sunset', V0_SUNSET)
   @Header('Link', V0_SUCCESSOR_LINK)
   @Header('X-API-Warn', V0_DEPRECATION_MESSAGE)
-  @ApiOperation({ summary: 'Get all records with optional filters', deprecated: true })
+  @ApiOperation({
+    summary: 'Get all records with optional filters',
+    deprecated: true,
+  })
   @ApiResponse({
     status: 200,
     description: 'List of records',
