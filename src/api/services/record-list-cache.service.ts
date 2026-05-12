@@ -9,7 +9,10 @@ const RECORD_LIST_CACHE_PREFIX = 'records:list';
 export class RecordListCacheService {
   constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
 
-  async get<T>(version: 'v0' | 'v1', query: Record<string, unknown>): Promise<T | null> {
+  async get<T>(
+    version: 'v0' | 'v1',
+    query: Record<string, unknown>,
+  ): Promise<T | null> {
     const cached = await this.redis.get(this.buildKey(version, query));
 
     if (!cached) {
@@ -52,9 +55,14 @@ export class RecordListCacheService {
     } while (cursor !== '0');
   }
 
-  private buildKey(version: 'v0' | 'v1', query: Record<string, unknown>): string {
+  private buildKey(
+    version: 'v0' | 'v1',
+    query: Record<string, unknown>,
+  ): string {
     const normalizedQuery = Object.entries(query)
-      .filter(([, value]) => value !== undefined && value !== null && value !== '')
+      .filter(
+        ([, value]) => value !== undefined && value !== null && value !== '',
+      )
       .sort(([left], [right]) => left.localeCompare(right))
       .reduce<Record<string, unknown>>((accumulator, [key, value]) => {
         accumulator[key] = value;

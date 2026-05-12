@@ -147,10 +147,11 @@ export class RecordService {
 
   async findAll(query: FindRecordsQueryDTO): Promise<PaginatedRecordsResponse> {
     const cacheQuery = this.buildV1CacheQuery(query);
-    const cached = await this.recordListCacheService.get<PaginatedRecordsResponse>(
-      'v1',
-      cacheQuery,
-    );
+    const cached =
+      await this.recordListCacheService.get<PaginatedRecordsResponse>(
+        'v1',
+        cacheQuery,
+      );
 
     if (cached) {
       return cached;
@@ -265,9 +266,9 @@ export class RecordService {
     return descending ? `-${normalizedField}` : normalizedField;
   }
 
-  private buildV1CacheQuery(
-    query: FindRecordsQueryDTO,
-  ): { [key: string]: unknown } {
+  private buildV1CacheQuery(query: FindRecordsQueryDTO): {
+    [key: string]: unknown;
+  } {
     return {
       q: query.q,
       artist: query.artist,
