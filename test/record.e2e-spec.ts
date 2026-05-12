@@ -7,7 +7,9 @@ import { RecordFormat, RecordCategory } from '../src/api/schemas/record.enum';
 describe('RecordController (e2e)', () => {
   let app: INestApplication;
   let recordIds: string[];
+  let orderIds: string[];
   let recordModel;
+  let orderModel;
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -16,7 +18,9 @@ describe('RecordController (e2e)', () => {
 
     app = moduleFixture.createNestApplication();
     recordModel = app.get('RecordModel');
+    orderModel = app.get('OrderModel');
     recordIds = [];
+    orderIds = [];
     await app.init();
   });
 
@@ -123,7 +127,75 @@ describe('RecordController (e2e)', () => {
     expect(listResponse.body.meta.total).toBe(0);
   });
 
+  it('should create an order and decrement record qty atomically', async () => {
+    const createRecordDto = {
+      artist: 'The Order Band',
+      album: 'Order Album',
+      price: 20,
+      qty: 5,
+      format: RecordFormat.VINYL,
+      category: RecordCategory.ROCK,
+    };
+
+    const createRecordResponse = await request(app.getHttpServer())
+      .post('/v1/records')
+      .send(createRecordDto)
+      .expect(201);
+
+    const recordId = createRecordResponse.body._id;
+    recordIds.push(recordId);
+
+    const createOrderResponse = await request(app.getHttpServer())
+      .post('/v1/orders')
+      .send({ recordId, quantity: 2 })
+      .expect(201);
+
+    orderIds.push(createOrderResponse.body._id);
+    expect(createOrderResponse.body).toHaveProperty('recordId', recordId);
+    expect(createOrderResponse.body).toHaveProperty('quantity', 2);
+    expect(createOrderResponse.body).toHaveProperty('unitPrice', 20);
+    expect(createOrderResponse.body).toHaveProperty('totalPrice', 40);
+
+    const listResponse = await request(app.getHttpServer())
+      .get('/v1/records?artist=The Order Band')
+      .expect(200);
+
+    expect(listResponse.body.items[0]).toHaveProperty('qty', 3);
+  });
+
+  it('should return insufficient stock error when order quantity exceeds available qty', async () => {
+    const createRecordDto = {
+      artist: 'The Low Stock Band',
+      album: 'Almost Gone',
+      price: 15,
+      qty: 1,
+      format: RecordFormat.CD,
+      category: RecordCategory.ALTERNATIVE,
+    };
+
+    const createRecordResponse = await request(app.getHttpServer())
+      .post('/v1/records')
+      .send(createRecordDto)
+      .expect(201);
+
+    const recordId = createRecordResponse.body._id;
+    recordIds.push(recordId);
+
+    const response = await request(app.getHttpServer())
+      .post('/v1/orders')
+      .send({ recordId, quantity: 2 })
+      .expect(400);
+
+    expect(response.body).toHaveProperty(
+      'message',
+      'Insufficient stock. Available: 1, requested: 2',
+    );
+  });
+
   afterEach(async () => {
+    for (const id of orderIds) {
+      await orderModel.findByIdAndDelete(id);
+    }
     for (const id of recordIds) {
       await recordModel.findByIdAndDelete(id);
     }
