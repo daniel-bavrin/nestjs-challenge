@@ -24,13 +24,42 @@ MONGO_URL=mongodb://localhost:27017/records
 ```
 This will point your application to a local MongoDB instance.
 
+### MongoDB Migrations
+This project uses versioned MongoDB migrations via `migrate-mongo`.
+
+Run all pending migrations:
+
+```
+npm run migrate:up
+```
+
+Check migration status:
+
+```
+npm run migrate:status
+```
+
+Rollback the latest migration:
+
+```
+npm run migrate:down
+```
+
+Create a new migration file:
+
+```
+npm run migrate:create -- add-some-change
+```
+
+Migration files live under `migrations/`, and applied migration state is stored in MongoDB collection `migrations_changelog`.
+
 ### MongoDB Data Setup
 The data.json file contains example records to seed your database. The setup script will import the records from this file into MongoDB.
 
-To set up the database with the example records:
+To seed example data (separate from schema migrations):
 
 ```
-npm run setup:db
+npm run seed:data
 ```
 This will prompt the user to cleanup (Y/N) existing collection before importing data.json
 

@@ -21,7 +21,12 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json --detectOpenHandles --forceExit",
-    "setup:db": "ts-node -r tsconfig-paths/register setup-db.ts",
+    "migrate:create": "migrate-mongo create",
+    "migrate:up": "migrate-mongo up -f migrate-mongo-config.js",
+    "migrate:down": "migrate-mongo down -f migrate-mongo-config.js",
+    "migrate:status": "migrate-mongo status -f migrate-mongo-config.js",
+    "seed:data": "ts-node -r tsconfig-paths/register scripts/seed-data.ts",
+    "setup:db": "node -e \"console.warn('[DEPRECATED] setup:db is deprecated. Use: npm run seed:data');\" && npm run seed:data",
     "prepare": "husky"
   },
   "dependencies": {
@@ -54,6 +59,7 @@
     "eslint-plugin-prettier": "^5.0.0",
     "husky": "^9.1.7",
     "jest": "^29.7.0",
+    "migrate-mongo": "^14.0.7",
     "prettier": "^3.0.0",
     "source-map-support": "^0.5.21",
     "supertest": "^6.3.3",

@@ -283,7 +283,7 @@ describe('RecordService', () => {
     });
   });
 
-  it('maps legacy sort fields to canonical timestamp fields', async () => {
+  it('maps v0 sort fields to canonical timestamp fields', async () => {
     const findChain = {
       sort: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
