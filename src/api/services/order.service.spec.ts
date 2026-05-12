@@ -97,7 +97,10 @@ describe('OrderService', () => {
     } as any);
 
     await expect(
-      orderService.create({ recordId: '6821b4fd25b68ab63ec4f9a5', quantity: 1 }),
+      orderService.create({
+        recordId: '6821b4fd25b68ab63ec4f9a5',
+        quantity: 1,
+      }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -108,10 +111,16 @@ describe('OrderService', () => {
     } as any);
 
     await expect(
-      orderService.create({ recordId: '6821b4fd25b68ab63ec4f9a5', quantity: 2 }),
+      orderService.create({
+        recordId: '6821b4fd25b68ab63ec4f9a5',
+        quantity: 2,
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
     await expect(
-      orderService.create({ recordId: '6821b4fd25b68ab63ec4f9a5', quantity: 2 }),
+      orderService.create({
+        recordId: '6821b4fd25b68ab63ec4f9a5',
+        quantity: 2,
+      }),
     ).rejects.toThrow('Insufficient stock. Available: 1, requested: 2');
   });
 });
