@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Param, Query, Put } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Post,
+  Body,
+  Param,
+  Query,
+  Put,
+} from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
 import { RecordCategory, RecordFormat } from '../schemas/record.enum';
@@ -30,6 +40,14 @@ export class RecordV1Controller {
     @Body() updateRecordDto: UpdateRecordRequestDTO,
   ): Promise<RecordResponse> {
     return this.recordService.update(id, updateRecordDto);
+  }
+  @Delete(':id')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Soft-delete a record' })
+  @ApiResponse({ status: 204, description: 'Record deleted' })
+  @ApiResponse({ status: 404, description: 'Record not found' })
+  async remove(@Param('id') id: string): Promise<void> {
+    return this.recordService.softDelete(id);
   }
 
   @Get()

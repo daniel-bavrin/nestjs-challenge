@@ -95,6 +95,34 @@ describe('RecordController (e2e)', () => {
     expect(listResponse.body.items[0]).toHaveProperty('tracklist');
   });
 
+  it('should soft-delete a record and exclude it from subsequent list results', async () => {
+    const createRecordDto = {
+      artist: 'The Deleted Band',
+      album: 'Gone Album',
+      price: 10,
+      qty: 1,
+      format: RecordFormat.VINYL,
+      category: RecordCategory.ROCK,
+    };
+
+    const createResponse = await request(app.getHttpServer())
+      .post('/v1/records')
+      .send(createRecordDto)
+      .expect(201);
+
+    const id = createResponse.body._id;
+    recordIds.push(id);
+
+    await request(app.getHttpServer()).delete(`/v1/records/${id}`).expect(204);
+
+    const listResponse = await request(app.getHttpServer())
+      .get('/v1/records?artist=The Deleted Band')
+      .expect(200);
+
+    expect(listResponse.body.items).toHaveLength(0);
+    expect(listResponse.body.meta.total).toBe(0);
+  });
+
   afterEach(async () => {
     for (const id of recordIds) {
       await recordModel.findByIdAndDelete(id);

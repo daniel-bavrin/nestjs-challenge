@@ -68,11 +68,26 @@ export class RecordService {
     return this.removeTracklist(created);
   }
 
+  async softDelete(id: string): Promise<void> {
+    const record = await this.recordModel.findOne({
+      _id: id,
+      deletedAt: null,
+    });
+    if (!record) {
+      throw new NotFoundException('Record not found');
+    }
+    record.deletedAt = new Date();
+    await record.save();
+  }
+
   async update(
     id: string,
     updateRecordDto: UpdateRecordRequestDTO,
   ): Promise<RecordResponse> {
-    const record = await this.recordModel.findById(id);
+    const record = await this.recordModel.findOne({
+      _id: id,
+      deletedAt: null,
+    });
     if (!record) {
       throw new NotFoundException('Record not found');
     }
@@ -144,8 +159,12 @@ export class RecordService {
     return items.map((item) => this.removeTracklist(this.mapTimestamps(item)));
   }
 
+  async softDeleteV0(id: string): Promise<void> {
+    return this.softDelete(id);
+  }
+
   private buildFilter(query: RecordFilterFields): FilterQuery<Record> {
-    const filter: FilterQuery<Record> = {};
+    const filter: FilterQuery<Record> = { deletedAt: null };
 
     if (query.q) {
       const qRegex = this.buildRegex(query.q);

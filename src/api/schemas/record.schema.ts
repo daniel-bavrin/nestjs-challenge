@@ -45,13 +45,22 @@ export class Record extends Document {
 
   @Prop({ type: [TrackSchema], default: [] })
   tracklist: Track[];
+
+  @Prop({ required: false, default: null })
+  deletedAt?: Date | null;
 }
 
 export const RecordSchema = SchemaFactory.createForClass(Record);
 
+// Partial unique index: only enforces uniqueness among non-deleted records,
+// so the same artist+album+format can be re-created after a soft-delete.
 RecordSchema.index(
   { artist: 1, album: 1, format: 1 },
-  { unique: true, name: 'uq_record_artist_album_format' },
+  {
+    unique: true,
+    name: 'uq_record_artist_album_format',
+    partialFilterExpression: { deletedAt: null },
+  },
 );
 RecordSchema.index({ artist: 1 });
 RecordSchema.index({ album: 1 });

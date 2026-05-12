@@ -33,6 +33,7 @@ describe('RecordService', () => {
           useValue: {
             create: jest.fn(),
             findById: jest.fn(),
+            findOne: jest.fn(),
             find: jest.fn(),
             countDocuments: jest.fn(),
           },
@@ -123,12 +124,15 @@ describe('RecordService', () => {
         updatedAt: new Date('2026-01-03T00:00:00.000Z'),
       }),
     } as unknown as Record;
-    jest.spyOn(recordModel, 'findById').mockResolvedValue(savedRecord);
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(savedRecord);
 
     const updateDto: UpdateRecordRequestDTO = { qty: 5 };
     const result = await recordService.update('1', updateDto);
 
-    expect(recordModel.findById).toHaveBeenCalledWith('1');
+    expect(recordModel.findOne).toHaveBeenCalledWith({
+      _id: '1',
+      deletedAt: null,
+    });
     expect(result).toEqual({
       _id: '1',
       qty: 5,
@@ -149,7 +153,7 @@ describe('RecordService', () => {
       tracklist: [{ position: 1, title: 'Old Song' }],
       save: jest.fn().mockResolvedValue({ _id: '1', mbid: 'new-mbid' }),
     } as unknown as Record;
-    jest.spyOn(recordModel, 'findById').mockResolvedValue(savedRecord);
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(savedRecord);
     jest
       .spyOn(musicbrainzService, 'fetchTracklistByMbid')
       .mockResolvedValue([
@@ -172,7 +176,7 @@ describe('RecordService', () => {
       tracklist: [{ position: 1, title: 'Old Song' }],
       save: jest.fn().mockResolvedValue({ _id: '1', mbid: undefined }),
     } as unknown as Record;
-    jest.spyOn(recordModel, 'findById').mockResolvedValue(savedRecord);
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(savedRecord);
 
     await recordService.update('1', { mbid: undefined });
 
@@ -182,7 +186,7 @@ describe('RecordService', () => {
 
   it('throws NotFoundException when updating a missing record', async () => {
     jest
-      .spyOn(recordModel, 'findById')
+      .spyOn(recordModel, 'findOne')
       .mockResolvedValue(null as unknown as Record);
 
     await expect(recordService.update('missing', {})).rejects.toBeInstanceOf(
@@ -194,7 +198,7 @@ describe('RecordService', () => {
     const savedRecord = {
       save: jest.fn().mockRejectedValue(new Error('boom')),
     } as unknown as Record;
-    jest.spyOn(recordModel, 'findById').mockResolvedValue(savedRecord);
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(savedRecord);
 
     await expect(recordService.update('1', { qty: 5 })).rejects.toBeInstanceOf(
       InternalServerErrorException,
@@ -247,6 +251,7 @@ describe('RecordService', () => {
 
     const result = await recordService.findAll(query);
     const expectedFilter = {
+      deletedAt: null,
       $or: [{ artist: /Abbey/i }, { album: /Abbey/i }, { category: /Abbey/i }],
       artist: /Beatles/i,
       album: /Road/i,
@@ -352,11 +357,76 @@ describe('RecordService', () => {
     });
 
     expect(recordModel.find).toHaveBeenCalledWith({
+      deletedAt: null,
       artist: /Beatles/i,
     });
     expect(Array.isArray(result)).toBe(true);
     expect(result[0]).not.toHaveProperty('tracklist');
     expect(result[0]).toHaveProperty('created');
     expect(result[0]).toHaveProperty('lastModified');
+  });
+
+  it('always includes deletedAt: null in query filters', async () => {
+    const findChain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue([]),
+    };
+    jest.spyOn(recordModel, 'find').mockReturnValue(findChain as any);
+    jest.spyOn(recordModel, 'countDocuments').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(0),
+    } as any);
+
+    await recordService.findAll(new FindRecordsQueryDTO());
+
+    expect(recordModel.find).toHaveBeenCalledWith(
+      expect.objectContaining({ deletedAt: null }),
+    );
+  });
+
+  it('soft-deletes a record by setting deletedAt', async () => {
+    const saveMock = jest.fn().mockResolvedValue(undefined);
+    const record = { deletedAt: null, save: saveMock } as unknown as Record;
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(record);
+
+    await recordService.softDelete('record-id');
+
+    expect(recordModel.findOne).toHaveBeenCalledWith({
+      _id: 'record-id',
+      deletedAt: null,
+    });
+    expect((record as any).deletedAt).toBeInstanceOf(Date);
+    expect(saveMock).toHaveBeenCalled();
+  });
+
+  it('throws NotFoundException when soft-deleting a missing or already-deleted record', async () => {
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(null);
+
+    await expect(recordService.softDelete('gone-id')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('update() scopes lookup to non-deleted records', async () => {
+    const savedRecord = {
+      mbid: undefined,
+      tracklist: [],
+      deletedAt: null,
+      save: jest.fn().mockResolvedValue({
+        _id: '1',
+        qty: 5,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-03T00:00:00.000Z'),
+      }),
+    } as unknown as Record;
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(savedRecord);
+
+    await recordService.update('1', { qty: 5 });
+
+    expect(recordModel.findOne).toHaveBeenCalledWith({
+      _id: '1',
+      deletedAt: null,
+    });
   });
 });

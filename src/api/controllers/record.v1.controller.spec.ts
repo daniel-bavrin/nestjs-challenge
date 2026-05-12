@@ -31,6 +31,7 @@ describe('RecordV1Controller', () => {
             create: jest.fn(),
             update: jest.fn(),
             findAll: jest.fn(),
+            softDelete: jest.fn(),
           },
         },
       ],
@@ -135,5 +136,13 @@ describe('RecordV1Controller', () => {
     const result = await recordController.update('1', updateDto);
     expect(result).toEqual(updatedRecord);
     expect(recordService.update).toHaveBeenCalledWith('1', updateDto);
+  });
+
+  it('should soft-delete a record', async () => {
+    jest.spyOn(recordService, 'softDelete').mockResolvedValue(undefined);
+
+    await recordController.remove('1');
+
+    expect(recordService.softDelete).toHaveBeenCalledWith('1');
   });
 });
