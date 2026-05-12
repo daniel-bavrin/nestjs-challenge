@@ -4,12 +4,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { InjectQueue } from '@nestjs/bullmq';
 import { FilterQuery, Model } from 'mongoose';
+import { Queue } from 'bullmq';
 import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
 import { FindRecordsQueryDTO } from '../dtos/find-records.query.dto';
 import { UpdateRecordRequestDTO } from '../dtos/update-record.request.dto';
 import { Record } from '../schemas/record.schema';
-import { MusicbrainzService } from './musicbrainz.service';
+import {
+  FETCH_TRACKLIST_JOB,
+  TRACKLIST_QUEUE,
+} from '../jobs/tracklist-queue.constants';
 
 export interface PaginatedRecordsMeta {
   total: number;
@@ -41,14 +46,10 @@ export interface PaginatedRecordsResponse {
 export class RecordService {
   constructor(
     @InjectModel('Record') private readonly recordModel: Model<Record>,
-    private readonly musicbrainzService: MusicbrainzService,
+    @InjectQueue(TRACKLIST_QUEUE) private readonly tracklistQueue: Queue,
   ) {}
 
   async create(request: CreateRecordRequestDTO): Promise<RecordResponse> {
-    const tracklist = request.mbid
-      ? await this.musicbrainzService.fetchTracklistByMbid(request.mbid)
-      : [];
-
     const createdRecord = await this.recordModel.create({
       artist: request.artist,
       album: request.album,
@@ -57,8 +58,12 @@ export class RecordService {
       format: request.format,
       category: request.category,
       mbid: request.mbid,
-      tracklist,
+      tracklist: [],
     });
+
+    if (request.mbid) {
+      await this.enqueueTracklistFetch(String(createdRecord._id), request.mbid);
+    }
 
     return this.mapTimestamps(createdRecord);
   }
@@ -96,14 +101,14 @@ export class RecordService {
       updateRecordDto,
       'mbid',
     );
+    const previousMbid = record.mbid;
 
     if (hasMbidField) {
       const nextMbid = updateRecordDto.mbid?.trim();
       if (!nextMbid) {
         record.tracklist = [];
       } else if (nextMbid !== record.mbid) {
-        record.tracklist =
-          await this.musicbrainzService.fetchTracklistByMbid(nextMbid);
+        record.tracklist = [];
       }
     }
 
@@ -111,6 +116,14 @@ export class RecordService {
 
     try {
       const updatedRecord = await record.save();
+
+      if (hasMbidField) {
+        const nextMbid = updateRecordDto.mbid?.trim();
+        if (nextMbid && nextMbid !== previousMbid) {
+          await this.enqueueTracklistFetch(String(updatedRecord._id), nextMbid);
+        }
+      }
+
       return this.mapTimestamps(updatedRecord);
     } catch {
       throw new InternalServerErrorException('Failed to update record');
@@ -234,5 +247,23 @@ export class RecordService {
     };
     delete v0Shape.tracklist;
     return v0Shape as RecordResponseV0;
+  }
+
+  private async enqueueTracklistFetch(
+    recordId: string,
+    externalId: string,
+  ): Promise<void> {
+    await this.tracklistQueue.add(
+      FETCH_TRACKLIST_JOB,
+      { recordId, externalId },
+      {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+        removeOnComplete: true,
+      },
+    );
   }
 }

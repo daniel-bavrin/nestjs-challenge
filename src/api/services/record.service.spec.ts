@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
+import { getQueueToken } from '@nestjs/bullmq';
 import { Model } from 'mongoose';
 import { RecordService } from './record.service';
 import { Record } from '../schemas/record.schema';
@@ -9,23 +10,27 @@ import {
   NotFoundException,
   InternalServerErrorException,
 } from '@nestjs/common';
+import { Queue } from 'bullmq';
 import { UpdateRecordRequestDTO } from '../dtos/update-record.request.dto';
 import { FindRecordsQueryDTO } from '../dtos/find-records.query.dto';
-import { MusicbrainzService } from './musicbrainz.service';
+import {
+  FETCH_TRACKLIST_JOB,
+  TRACKLIST_QUEUE,
+} from '../jobs/tracklist-queue.constants';
 
 describe('RecordService', () => {
   let recordService: RecordService;
   let recordModel: Model<Record>;
-  let musicbrainzService: MusicbrainzService;
+  let tracklistQueue: Queue;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         RecordService,
         {
-          provide: MusicbrainzService,
+          provide: getQueueToken(TRACKLIST_QUEUE),
           useValue: {
-            fetchTracklistByMbid: jest.fn(),
+            add: jest.fn().mockResolvedValue(undefined),
           },
         },
         {
@@ -43,7 +48,7 @@ describe('RecordService', () => {
 
     recordService = module.get<RecordService>(RecordService);
     recordModel = module.get<Model<Record>>(getModelToken('Record'));
-    musicbrainzService = module.get<MusicbrainzService>(MusicbrainzService);
+    tracklistQueue = module.get<Queue>(getQueueToken(TRACKLIST_QUEUE));
   });
 
   it('creates a record with the expected mapped fields', async () => {
@@ -57,22 +62,16 @@ describe('RecordService', () => {
       mbid: 'test-mbid',
     };
 
-    const tracklist = [
-      { position: 1, title: 'Come Together', duration: '4:20' },
-    ];
     const createdAt = new Date('2026-01-01T00:00:00.000Z');
     const updatedAt = new Date('2026-01-02T00:00:00.000Z');
     const createdRecord = {
       _id: '1',
       ...request,
-      tracklist,
+      tracklist: [],
       createdAt,
       updatedAt,
     };
 
-    jest
-      .spyOn(musicbrainzService, 'fetchTracklistByMbid')
-      .mockResolvedValue(tracklist as any);
     jest.spyOn(recordModel, 'create').mockResolvedValue(createdRecord as any);
 
     const result = await recordService.create(request);
@@ -82,12 +81,18 @@ describe('RecordService', () => {
       created: createdAt,
       lastModified: updatedAt,
     });
-    expect(musicbrainzService.fetchTracklistByMbid).toHaveBeenCalledWith(
-      request.mbid,
+    expect(tracklistQueue.add).toHaveBeenCalledWith(
+      FETCH_TRACKLIST_JOB,
+      { recordId: '1', externalId: request.mbid },
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: true,
+      },
     );
     expect(recordModel.create).toHaveBeenCalledWith({
       ...request,
-      tracklist,
+      tracklist: [],
     });
   });
 
@@ -106,7 +111,7 @@ describe('RecordService', () => {
 
     await recordService.create(request);
 
-    expect(musicbrainzService.fetchTracklistByMbid).not.toHaveBeenCalled();
+    expect(tracklistQueue.add).not.toHaveBeenCalled();
     expect(recordModel.create).toHaveBeenCalledWith({
       ...request,
       tracklist: [],
@@ -144,30 +149,29 @@ describe('RecordService', () => {
     expect(
       (savedRecord as unknown as { save: jest.Mock }).save,
     ).toHaveBeenCalled();
-    expect(musicbrainzService.fetchTracklistByMbid).not.toHaveBeenCalled();
+    expect(tracklistQueue.add).not.toHaveBeenCalled();
   });
 
-  it('re-fetches tracklist when mbid changes on update', async () => {
+  it('enqueues tracklist refresh when mbid changes on update', async () => {
     const savedRecord = {
       mbid: 'old-mbid',
       tracklist: [{ position: 1, title: 'Old Song' }],
       save: jest.fn().mockResolvedValue({ _id: '1', mbid: 'new-mbid' }),
     } as unknown as Record;
     jest.spyOn(recordModel, 'findOne').mockResolvedValue(savedRecord);
-    jest
-      .spyOn(musicbrainzService, 'fetchTracklistByMbid')
-      .mockResolvedValue([
-        { position: 1, title: 'New Song', duration: '3:15' },
-      ] as any);
 
     await recordService.update('1', { mbid: 'new-mbid' });
 
-    expect(musicbrainzService.fetchTracklistByMbid).toHaveBeenCalledWith(
-      'new-mbid',
+    expect((savedRecord as any).tracklist).toEqual([]);
+    expect(tracklistQueue.add).toHaveBeenCalledWith(
+      FETCH_TRACKLIST_JOB,
+      { recordId: '1', externalId: 'new-mbid' },
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: true,
+      },
     );
-    expect((savedRecord as any).tracklist).toEqual([
-      { position: 1, title: 'New Song', duration: '3:15' },
-    ]);
   });
 
   it('clears tracklist when mbid is removed on update', async () => {
@@ -180,7 +184,7 @@ describe('RecordService', () => {
 
     await recordService.update('1', { mbid: undefined });
 
-    expect(musicbrainzService.fetchTracklistByMbid).not.toHaveBeenCalled();
+    expect(tracklistQueue.add).not.toHaveBeenCalled();
     expect((savedRecord as any).tracklist).toEqual([]);
   });
 

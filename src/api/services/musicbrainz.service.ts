@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { XMLParser } from 'fast-xml-parser';
 import { Track } from '../schemas/record.schema';
+import { TracklistProvider } from '../interfaces/tracklist-provider.interface';
 
 interface MusicBrainzTrackNode {
   title?: string;
@@ -10,12 +11,16 @@ interface MusicBrainzTrackNode {
 }
 
 @Injectable()
-export class MusicbrainzService {
+export class MusicbrainzService implements TracklistProvider {
   private readonly logger = new Logger(MusicbrainzService.name);
   private readonly parser = new XMLParser({
     ignoreAttributes: false,
     trimValues: true,
   });
+
+  async fetchTracklist(externalId: string): Promise<Track[]> {
+    return this.fetchTracklistByMbid(externalId);
+  }
 
   async fetchTracklistByMbid(mbid: string): Promise<Track[]> {
     if (!mbid) {

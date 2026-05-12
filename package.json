@@ -8,7 +8,8 @@
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "mongo:start": "docker compose -f ./docker-compose-mongo.yml up -d",
+    "infra:start": "docker compose -f ./docker-compose.yml up -d",
+    "infra:stop": "docker compose -f ./docker-compose.yml down",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
@@ -27,14 +28,18 @@
     "migrate:status": "migrate-mongo status -f migrate-mongo-config.js",
     "seed:data": "ts-node -r tsconfig-paths/register scripts/seed-data.ts",
     "setup:db": "node -e \"console.warn('[DEPRECATED] setup:db is deprecated. Use: npm run seed:data');\" && npm run seed:data",
+    "setup:env": "test -f .env || (cp .env.example .env && echo '✓ Created .env from .env.example')",
+    "setup:init": "npm run setup:env && npm run infra:start && npm run migrate:up && npm run seed:data",
     "prepare": "husky"
   },
   "dependencies": {
+    "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/mongoose": "^11.0.1",
     "@nestjs/platform-express": "^11.0.0",
     "@nestjs/swagger": "^11.0.6",
+    "bullmq": "^5.76.8",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "dotenv": "^16.4.7",
