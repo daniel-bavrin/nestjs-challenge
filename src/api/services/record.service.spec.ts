@@ -59,7 +59,15 @@ describe('RecordService', () => {
     const tracklist = [
       { position: 1, title: 'Come Together', duration: '4:20' },
     ];
-    const createdRecord = { _id: '1', ...request, tracklist };
+    const createdAt = new Date('2026-01-01T00:00:00.000Z');
+    const updatedAt = new Date('2026-01-02T00:00:00.000Z');
+    const createdRecord = {
+      _id: '1',
+      ...request,
+      tracklist,
+      createdAt,
+      updatedAt,
+    };
 
     jest
       .spyOn(musicbrainzService, 'fetchTracklistByMbid')
@@ -68,7 +76,11 @@ describe('RecordService', () => {
 
     const result = await recordService.create(request);
 
-    expect(result).toEqual(createdRecord);
+    expect(result).toEqual({
+      ...createdRecord,
+      created: createdAt,
+      lastModified: updatedAt,
+    });
     expect(musicbrainzService.fetchTracklistByMbid).toHaveBeenCalledWith(
       request.mbid,
     );
@@ -104,7 +116,12 @@ describe('RecordService', () => {
     const savedRecord = {
       mbid: 'old-mbid',
       tracklist: [{ position: 1, title: 'Old Song' }],
-      save: jest.fn().mockResolvedValue({ _id: '1', qty: 5 }),
+      save: jest.fn().mockResolvedValue({
+        _id: '1',
+        qty: 5,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-03T00:00:00.000Z'),
+      }),
     } as unknown as Record;
     jest.spyOn(recordModel, 'findById').mockResolvedValue(savedRecord);
 
@@ -112,7 +129,14 @@ describe('RecordService', () => {
     const result = await recordService.update('1', updateDto);
 
     expect(recordModel.findById).toHaveBeenCalledWith('1');
-    expect(result).toEqual({ _id: '1', qty: 5 });
+    expect(result).toEqual({
+      _id: '1',
+      qty: 5,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-03T00:00:00.000Z'),
+      created: new Date('2026-01-01T00:00:00.000Z'),
+      lastModified: new Date('2026-01-03T00:00:00.000Z'),
+    });
     expect(
       (savedRecord as unknown as { save: jest.Mock }).save,
     ).toHaveBeenCalled();
@@ -184,12 +208,16 @@ describe('RecordService', () => {
         album: 'Abbey Road',
         category: RecordCategory.ROCK,
         format: RecordFormat.VINYL,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-02T00:00:00.000Z'),
       },
       {
         artist: 'Miles Davis',
         album: 'Kind of Blue',
         category: RecordCategory.JAZZ,
         format: RecordFormat.CD,
+        createdAt: new Date('2026-01-05T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
       },
     ] as Record[];
 
@@ -234,7 +262,11 @@ describe('RecordService', () => {
     expect(findChain.skip).toHaveBeenCalledWith(10);
     expect(findChain.limit).toHaveBeenCalledWith(10);
     expect(result).toEqual({
-      items: records,
+      items: records.map((record) => ({
+        ...record,
+        created: (record as any).createdAt,
+        lastModified: (record as any).updatedAt,
+      })),
       meta: {
         total: 1,
         page: 2,
@@ -244,5 +276,26 @@ describe('RecordService', () => {
         hasPrevPage: true,
       },
     });
+  });
+
+  it('maps legacy sort fields to canonical timestamp fields', async () => {
+    const findChain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue([]),
+    };
+
+    jest.spyOn(recordModel, 'find').mockReturnValue(findChain as any);
+    jest.spyOn(recordModel, 'countDocuments').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(0),
+    } as any);
+
+    const query = new FindRecordsQueryDTO();
+    query.sort = '-lastModified';
+
+    await recordService.findAll(query);
+
+    expect(findChain.sort).toHaveBeenCalledWith('-updatedAt');
   });
 });

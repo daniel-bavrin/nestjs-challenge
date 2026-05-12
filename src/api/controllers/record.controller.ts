@@ -1,10 +1,9 @@
 import { Controller, Get, Post, Body, Param, Query, Put } from '@nestjs/common';
-import { Record } from '../schemas/record.schema';
 import { ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
 import { RecordCategory, RecordFormat } from '../schemas/record.enum';
 import { UpdateRecordRequestDTO } from '../dtos/update-record.request.dto';
-import { RecordService } from '../services/record.service';
+import { RecordResponse, RecordService } from '../services/record.service';
 import { FindRecordsQueryDTO } from '../dtos/find-records.query.dto';
 import { FindRecordsResponseDTO } from '../dtos/find-records.response.dto';
 
@@ -16,7 +15,9 @@ export class RecordController {
   @ApiOperation({ summary: 'Create a new record' })
   @ApiResponse({ status: 201, description: 'Record successfully created' })
   @ApiResponse({ status: 400, description: 'Bad Request' })
-  async create(@Body() request: CreateRecordRequestDTO): Promise<Record> {
+  async create(
+    @Body() request: CreateRecordRequestDTO,
+  ): Promise<RecordResponse> {
     return this.recordService.create(request);
   }
 
@@ -27,7 +28,7 @@ export class RecordController {
   async update(
     @Param('id') id: string,
     @Body() updateRecordDto: UpdateRecordRequestDTO,
-  ): Promise<Record> {
+  ): Promise<RecordResponse> {
     return this.recordService.update(id, updateRecordDto);
   }
 
