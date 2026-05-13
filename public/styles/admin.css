@@ -84,6 +84,16 @@ textarea { min-height: 90px; resize: vertical; }
   margin: 10px 0 8px;
 }
 
+.record-meta {
+  margin-top: 8px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 13px;
+}
+
 .field label { display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted); }
 .req { color: var(--danger); }
 

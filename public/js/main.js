@@ -54,6 +54,16 @@ function renderRecordForm(values) {
   const fields = state.editingRecordId
     ? state.recordUpdateFields
     : state.recordCreateFields;
+  const meta = qs('recordEditMeta');
+
+  if (state.editingRecordId) {
+    meta.innerHTML = `<strong>Record ID:</strong> <span class="mono">${escapeHtml(state.editingRecordId)}</span>`;
+    meta.classList.remove('hidden');
+  } else {
+    meta.innerHTML = '';
+    meta.classList.add('hidden');
+  }
+
   qs('recordFields').innerHTML = fields
     .map((field) => renderField(field, values ? values[field.name] : undefined))
     .join('');
