@@ -36,7 +36,7 @@ function normalizePayload(formEl, fields) {
     if (raw === null) continue;
     const value = String(raw).trim();
     if (value === '') {
-      if (field.required) payload[field.name] = value;
+      if (field.required || field.name === 'mbid') payload[field.name] = value;
       continue;
     }
     if (field.type === 'integer') {
@@ -103,9 +103,11 @@ async function loadRecords() {
     return;
   }
 
-  let html = '<table><thead><tr><th>Artist</th><th>Album</th><th>Format</th><th>Category</th><th>Price</th><th>Qty</th><th>Tracklist</th><th>Actions</th></tr></thead><tbody>';
+  let html =
+    '<table><thead><tr><th>Artist</th><th>Album</th><th>Format</th><th>Category</th><th>Price</th><th>Qty</th><th>Tracklist</th><th>Actions</th></tr></thead><tbody>';
   for (const item of items) {
-    const hasTracklist = Array.isArray(item.tracklist) && item.tracklist.length > 0;
+    const hasTracklist =
+      Array.isArray(item.tracklist) && item.tracklist.length > 0;
     html += `<tr>
       <td>${escapeHtml(item.artist)}</td>
       <td>${escapeHtml(item.album)}</td>
@@ -121,14 +123,22 @@ async function loadRecords() {
     </tr>`;
   }
   html += '</tbody></table>';
-  html += renderPagination(data.meta?.totalPages || 1, state.recordPage, 'records');
+  html += renderPagination(
+    data.meta?.totalPages || 1,
+    state.recordPage,
+    'records',
+  );
   qs('recordsTableWrap').innerHTML = html;
 
   document.querySelectorAll('[data-edit-id]').forEach((btn) => {
-    btn.addEventListener('click', () => withError(() => editRecord(btn.getAttribute('data-edit-id'))));
+    btn.addEventListener('click', () =>
+      withError(() => editRecord(btn.getAttribute('data-edit-id'))),
+    );
   });
   document.querySelectorAll('[data-del-id]').forEach((btn) => {
-    btn.addEventListener('click', () => withError(() => deleteRecord(btn.getAttribute('data-del-id'))));
+    btn.addEventListener('click', () =>
+      withError(() => deleteRecord(btn.getAttribute('data-del-id'))),
+    );
   });
   document.querySelectorAll('[data-page-records]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -154,11 +164,16 @@ async function loadOrders() {
     return;
   }
 
-  let html = '<table><thead><tr><th>ID</th><th>Record ID</th><th>Qty</th><th>Total</th><th>Status</th><th>Source</th><th>Actions</th></tr></thead><tbody>';
+  let html =
+    '<table><thead><tr><th>ID</th><th>Record ID</th><th>Qty</th><th>Total</th><th>Status</th><th>Source</th><th>Actions</th></tr></thead><tbody>';
   for (const item of items) {
     const isCanceled = String(item.status).toLowerCase() === 'canceled';
-    const editDisabled = isCanceled ? 'disabled title="Canceled orders cannot be edited"' : '';
-    const cancelDisabled = isCanceled ? 'disabled title="Order is already canceled"' : '';
+    const editDisabled = isCanceled
+      ? 'disabled title="Canceled orders cannot be edited"'
+      : '';
+    const cancelDisabled = isCanceled
+      ? 'disabled title="Order is already canceled"'
+      : '';
 
     html += `<tr>
       <td class="mono">${escapeHtml(item._id)}</td>
@@ -174,15 +189,31 @@ async function loadOrders() {
     </tr>`;
   }
   html += '</tbody></table>';
-  html += renderPagination(data.meta?.totalPages || 1, state.orderPage, 'orders');
+  html += renderPagination(
+    data.meta?.totalPages || 1,
+    state.orderPage,
+    'orders',
+  );
   qs('ordersTableWrap').innerHTML = html;
 
-  document.querySelectorAll('[data-edit-order]:not([disabled])').forEach((btn) => {
-    btn.addEventListener('click', () => withError(() => openOrderEditModal(btn.getAttribute('data-edit-order'))));
-  });
-  document.querySelectorAll('[data-cancel-order]:not([disabled])').forEach((btn) => {
-    btn.addEventListener('click', () => withError(() => requestOrderCancel(btn.getAttribute('data-cancel-order'))));
-  });
+  document
+    .querySelectorAll('[data-edit-order]:not([disabled])')
+    .forEach((btn) => {
+      btn.addEventListener('click', () =>
+        withError(() =>
+          openOrderEditModal(btn.getAttribute('data-edit-order')),
+        ),
+      );
+    });
+  document
+    .querySelectorAll('[data-cancel-order]:not([disabled])')
+    .forEach((btn) => {
+      btn.addEventListener('click', () =>
+        withError(() =>
+          requestOrderCancel(btn.getAttribute('data-cancel-order')),
+        ),
+      );
+    });
   document.querySelectorAll('[data-page-orders]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.orderPage = parseInt(btn.getAttribute('data-page-orders'), 10);
@@ -203,7 +234,10 @@ async function editRecord(id) {
 
 async function fillTracklistNow() {
   if (!state.editingRecordId) return;
-  const res = await fetch(`/v1/records/${state.editingRecordId}/fill-tracklist`, { method: 'POST' });
+  const res = await fetch(
+    `/v1/records/${state.editingRecordId}/fill-tracklist`,
+    { method: 'POST' },
+  );
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
     throw new Error(errBody.message || 'Failed to fill tracklist');
@@ -217,7 +251,10 @@ async function fillTracklistNow() {
 
 async function clearTracklistNow() {
   if (!state.editingRecordId) return;
-  const res = await fetch(`/v1/records/${state.editingRecordId}/clear-tracklist`, { method: 'POST' });
+  const res = await fetch(
+    `/v1/records/${state.editingRecordId}/clear-tracklist`,
+    { method: 'POST' },
+  );
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
     throw new Error(errBody.message || 'Failed to clear tracklist');
@@ -318,8 +355,12 @@ function wireActions() {
     state.currentEditingRecord = null;
     qs('recordForm').classList.add('hidden');
   });
-  qs('fillTracklistBtn').addEventListener('click', () => withError(fillTracklistNow));
-  qs('clearTracklistBtn').addEventListener('click', () => withError(clearTracklistNow));
+  qs('fillTracklistBtn').addEventListener('click', () =>
+    withError(fillTracklistNow),
+  );
+  qs('clearTracklistBtn').addEventListener('click', () =>
+    withError(clearTracklistNow),
+  );
 
   qs('recordSearchBtn').addEventListener('click', () => {
     const query = qs('recordSearch').value.trim();
@@ -334,28 +375,34 @@ function wireActions() {
     withError(loadRecords);
   });
 
-  qs('recordForm').addEventListener('submit', (event) => withError(async () => {
-    event.preventDefault();
-    const fields = state.editingRecordId ? state.recordUpdateFields : state.recordCreateFields;
-    const payload = normalizePayload(qs('recordForm'), fields);
-    const isUpdate = Boolean(state.editingRecordId);
-    const url = isUpdate ? `/v1/records/${state.editingRecordId}` : '/v1/records';
-    const method = isUpdate ? 'PUT' : 'POST';
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      throw new Error(errBody.message || 'Record save failed');
-    }
-    qs('recordForm').classList.add('hidden');
-    state.editingRecordId = null;
-    state.currentEditingRecord = null;
-    showToast(isUpdate ? 'Record updated' : 'Record created');
-    await loadRecords();
-  }));
+  qs('recordForm').addEventListener('submit', (event) =>
+    withError(async () => {
+      event.preventDefault();
+      const fields = state.editingRecordId
+        ? state.recordUpdateFields
+        : state.recordCreateFields;
+      const payload = normalizePayload(qs('recordForm'), fields);
+      const isUpdate = Boolean(state.editingRecordId);
+      const url = isUpdate
+        ? `/v1/records/${state.editingRecordId}`
+        : '/v1/records';
+      const method = isUpdate ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.message || 'Record save failed');
+      }
+      qs('recordForm').classList.add('hidden');
+      state.editingRecordId = null;
+      state.currentEditingRecord = null;
+      showToast(isUpdate ? 'Record updated' : 'Record created');
+      await loadRecords();
+    }),
+  );
 
   qs('newOrderBtn').addEventListener('click', () => {
     renderOrderForm();
@@ -365,22 +412,27 @@ function wireActions() {
     qs('orderForm').classList.add('hidden');
   });
 
-  qs('orderForm').addEventListener('submit', (event) => withError(async () => {
-    event.preventDefault();
-    const payload = normalizePayload(qs('orderForm'), state.orderCreateFields);
-    const res = await fetch('/v1/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      throw new Error(errBody.message || 'Order create failed');
-    }
-    qs('orderForm').classList.add('hidden');
-    showToast('Order created');
-    await loadOrders();
-  }));
+  qs('orderForm').addEventListener('submit', (event) =>
+    withError(async () => {
+      event.preventDefault();
+      const payload = normalizePayload(
+        qs('orderForm'),
+        state.orderCreateFields,
+      );
+      const res = await fetch('/v1/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.message || 'Order create failed');
+      }
+      qs('orderForm').classList.add('hidden');
+      showToast('Order created');
+      await loadOrders();
+    }),
+  );
 
   qs('orderStatus').addEventListener('change', () => {
     const value = qs('orderStatus').value;

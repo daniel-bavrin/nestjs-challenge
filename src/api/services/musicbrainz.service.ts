@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { XMLParser } from 'fast-xml-parser';
 import { Track } from '../schemas/record.schema';
 import { TracklistProvider } from '../interfaces/tracklist-provider.interface';
+import { AppConfig } from '../../app.config';
 
 interface MusicBrainzTrackNode {
   title?: string;
@@ -35,6 +36,7 @@ export class MusicbrainzService implements TracklistProvider {
             'User-Agent': 'broken-record-store-api/1.0 (phase-3-enrichment)',
             Accept: 'application/xml',
           },
+          signal: AbortSignal.timeout(AppConfig.musicbrainzTimeoutMs),
         },
       );
 

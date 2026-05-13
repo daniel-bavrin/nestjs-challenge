@@ -44,7 +44,10 @@ export class TracklistProcessor extends WorkerHost {
     }
 
     const { recordId, externalId } = job.data;
-    const tracklist = await this.getTracklist(externalId);
+    const tracklist = await this.withTimeout(
+      this.getTracklist(externalId),
+      AppConfig.tracklistJobTimeoutMs,
+    );
 
     const updateResult = await this.recordModel
       .updateOne(
@@ -77,5 +80,27 @@ export class TracklistProcessor extends WorkerHost {
       AppConfig.tracklistCacheTtlSeconds,
     );
     return tracklist;
+  }
+
+  private async withTimeout<T>(
+    operation: Promise<T>,
+    timeoutMs: number,
+  ): Promise<T> {
+    let timeout: NodeJS.Timeout | undefined;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeout = setTimeout(
+        () => reject(new Error(`Tracklist job timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
+    });
+
+    try {
+      return await Promise.race([operation, timeoutPromise]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
   }
 }

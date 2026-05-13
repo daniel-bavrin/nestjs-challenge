@@ -15,4 +15,12 @@ export const AppConfig = {
     process.env.TRACKLIST_CACHE_TTL_SECONDS || '2592000',
     10,
   ),
+  musicbrainzTimeoutMs: parseInt(
+    process.env.MUSICBRAINZ_TIMEOUT_MS || '5000',
+    10,
+  ),
+  tracklistJobTimeoutMs: parseInt(
+    process.env.TRACKLIST_JOB_TIMEOUT_MS || '7000',
+    10,
+  ),
 };

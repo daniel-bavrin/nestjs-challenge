@@ -132,4 +132,28 @@ describe('TracklistProcessor', () => {
     expect(tracklistProvider.fetchTracklist).not.toHaveBeenCalled();
     expect(recordModel.updateOne).not.toHaveBeenCalled();
   });
+
+  it('fails the job attempt when tracklist lookup exceeds the job timeout', async () => {
+    jest.useFakeTimers();
+    redisClient.get.mockResolvedValue(null);
+    jest
+      .spyOn(tracklistProvider, 'fetchTracklist')
+      .mockReturnValue(new Promise(() => undefined) as any);
+
+    const job = {
+      name: FETCH_TRACKLIST_JOB,
+      queueName: TRACKLIST_QUEUE,
+      data: { recordId: 'r1', externalId: 'mbid-1' },
+    } as unknown as Job;
+
+    const processPromise = processor.process(job);
+    jest.advanceTimersByTime(7000);
+
+    await expect(processPromise).rejects.toThrow(
+      'Tracklist job timed out after 7000ms',
+    );
+    expect(recordModel.updateOne).not.toHaveBeenCalled();
+
+    jest.useRealTimers();
+  });
 });

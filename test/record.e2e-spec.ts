@@ -186,6 +186,12 @@ describe('RecordController (e2e)', () => {
     expect(updateResponse.body).toHaveProperty('mbid', '');
     expect(updateResponse.body.tracklist).toEqual([]);
 
+    const listAfterUpdate = await request(app.getHttpServer())
+      .get('/v1/records?artist=MBID Band')
+      .expect(200);
+
+    expect(listAfterUpdate.body.items[0]).toHaveProperty('mbid', '');
+
     const fillResponse = await request(app.getHttpServer())
       .post(`/v1/records/${recordId}/fill-tracklist`)
       .send({})

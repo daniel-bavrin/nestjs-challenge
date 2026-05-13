@@ -212,7 +212,7 @@ describe('RecordService', () => {
     const savedRecord = {
       mbid: 'old-mbid',
       tracklist: [{ position: 1, title: 'Old Song' }],
-      save: jest.fn().mockResolvedValue({ _id: '1', mbid: undefined }),
+      save: jest.fn().mockResolvedValue({ _id: '1', mbid: '' }),
     } as unknown as Record;
     jest.spyOn(recordModel, 'findOne').mockResolvedValue(savedRecord);
 
@@ -220,6 +220,22 @@ describe('RecordService', () => {
 
     expect(tracklistQueue.add).not.toHaveBeenCalled();
     expect((savedRecord as any).tracklist).toEqual([]);
+    expect((savedRecord as any).mbid).toBe('');
+  });
+
+  it('sets mbid to an empty string and clears tracklist when mbid is blank on update', async () => {
+    const savedRecord = {
+      mbid: 'old-mbid',
+      tracklist: [{ position: 1, title: 'Old Song' }],
+      save: jest.fn().mockResolvedValue({ _id: '1', mbid: '' }),
+    } as unknown as Record;
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(savedRecord);
+
+    await recordService.update('1', { mbid: '' });
+
+    expect(tracklistQueue.add).not.toHaveBeenCalled();
+    expect((savedRecord as any).tracklist).toEqual([]);
+    expect((savedRecord as any).mbid).toBe('');
   });
 
   it('throws NotFoundException when updating a missing record', async () => {
@@ -722,6 +738,27 @@ describe('RecordService', () => {
     expect(findChain.sort).toHaveBeenCalledWith('createdAt');
   });
 
+  it('falls back to default sort for unsupported record sort fields', async () => {
+    const findChain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue([]),
+    };
+
+    jest.spyOn(recordModel, 'find').mockReturnValue(findChain as any);
+    jest.spyOn(recordModel, 'countDocuments').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(0),
+    } as any);
+
+    const query = new FindRecordsQueryDTO();
+    query.sort = 'tracklist.position';
+
+    await recordService.findAll(query);
+
+    expect(findChain.sort).toHaveBeenCalledWith('-createdAt');
+  });
+
   it('adjustInventory invalidates item and list caches on successful change', async () => {
     jest.spyOn(recordModel, 'findOneAndUpdate').mockReturnValue({
       exec: jest.fn().mockResolvedValue({
@@ -737,6 +774,43 @@ describe('RecordService', () => {
     expect(recordListCacheService.invalidateItem).toHaveBeenCalledWith('r1');
     expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
     expect(result).toHaveProperty('qty', 7);
+  });
+
+  it('adjustInventory debits stock with an atomic quantity guard', async () => {
+    jest.spyOn(recordModel, 'findOneAndUpdate').mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: 'r1',
+        qty: 3,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+      }),
+    } as any);
+
+    await recordService.adjustInventory('r1', -2);
+
+    expect(recordModel.findOneAndUpdate).toHaveBeenCalledWith(
+      {
+        _id: 'r1',
+        deletedAt: null,
+        qty: { $gte: 2 },
+      },
+      { $inc: { qty: -2 } },
+      { new: true },
+    );
+    expect(recordModel.findOne).not.toHaveBeenCalled();
+  });
+
+  it('adjustInventory reports insufficient stock when guarded debit misses an existing record', async () => {
+    jest.spyOn(recordModel, 'findOneAndUpdate').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(null),
+    } as any);
+    jest.spyOn(recordModel, 'findOne').mockReturnValue({
+      exec: jest.fn().mockResolvedValue({ _id: 'r1', qty: 1 }),
+    } as any);
+
+    await expect(recordService.adjustInventory('r1', -2)).rejects.toThrow(
+      'Insufficient stock. Available: 1, requested: 2',
+    );
   });
 
   it('adjustInventory delegates to findOne when delta is zero', async () => {

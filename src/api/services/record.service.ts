@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { InjectQueue } from '@nestjs/bullmq';
-import { FilterQuery, Model } from 'mongoose';
+import { ClientSession, FilterQuery, Model } from 'mongoose';
 import { Queue } from 'bullmq';
 import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
 import { FindRecordsQueryDTO } from '../dtos/find-records.query.dto';
@@ -44,6 +44,17 @@ type RecordFilterFields = Pick<
   FindRecordsQueryDTO,
   'q' | 'artist' | 'album' | 'format' | 'category'
 >;
+
+const RECORD_SORT_FIELDS: { [key: string]: string } = {
+  artist: 'artist',
+  album: 'album',
+  category: 'category',
+  format: 'format',
+  created: 'createdAt',
+  createdAt: 'createdAt',
+  lastModified: 'updatedAt',
+  updatedAt: 'updatedAt',
+};
 
 export interface PaginatedRecordsResponse {
   items: RecordResponse[];
@@ -120,16 +131,24 @@ export class RecordService {
     );
     const previousMbid = record.mbid;
 
+    const updatePayload = { ...updateRecordDto };
+
     if (hasMbidField) {
       const nextMbid = updateRecordDto.mbid?.trim();
+      delete updatePayload.mbid;
+
       if (!nextMbid) {
+        record.mbid = '';
         record.tracklist = [];
-      } else if (nextMbid !== record.mbid) {
-        record.tracklist = [];
+      } else {
+        record.mbid = nextMbid;
+        if (nextMbid !== previousMbid) {
+          record.tracklist = [];
+        }
       }
     }
 
-    Object.assign(record, updateRecordDto);
+    Object.assign(record, updatePayload);
 
     try {
       const updatedRecord = await record.save();
@@ -365,52 +384,56 @@ export class RecordService {
   async adjustInventory(
     recordId: string,
     delta: number,
+    session?: ClientSession,
   ): Promise<RecordResponse> {
     if (delta === 0) {
       return this.findOne(recordId);
     }
 
+    const requestedQuantity = Math.abs(delta);
+    const updateFilter: FilterQuery<Record> = {
+      _id: recordId,
+      deletedAt: null,
+    };
+
     if (delta < 0) {
-      const currentQty = await this.recordModel
-        .findOne(
-          {
-            _id: recordId,
-            deletedAt: null,
-            qty: { $gte: Math.abs(delta) },
-          },
-          { qty: 1 },
-        )
-        .exec();
-
-      if (!currentQty) {
-        const record = await this.recordModel
-          .findOne({ _id: recordId, deletedAt: null }, { qty: 1 })
-          .exec();
-
-        if (!record) {
-          throw new NotFoundException('Record not found');
-        }
-
-        throw new BadRequestException(
-          `Insufficient stock. Available: ${record.qty}, requested: ${Math.abs(delta)}`,
-        );
-      }
+      updateFilter.qty = { $gte: requestedQuantity };
     }
 
-    const updatedRecord = await this.recordModel
-      .findOneAndUpdate(
-        {
-          _id: recordId,
-          deletedAt: null,
-        },
-        {
-          $inc: { qty: delta },
-        },
-        { new: true },
-      )
-      .exec();
+    let updateQuery = this.recordModel.findOneAndUpdate(
+      updateFilter,
+      {
+        $inc: { qty: delta },
+      },
+      { new: true },
+    );
+
+    if (session) {
+      updateQuery = updateQuery.session(session);
+    }
+
+    const updatedRecord = await updateQuery.exec();
 
     if (!updatedRecord) {
+      if (delta < 0) {
+        let findQuery = this.recordModel.findOne(
+          { _id: recordId, deletedAt: null },
+          { qty: 1 },
+        );
+
+        if (session) {
+          findQuery = findQuery.session(session);
+        }
+
+        const record = await findQuery.exec();
+
+        if (record) {
+          throw new BadRequestException(
+            `Insufficient stock. Available: ${record.qty}, requested: ${requestedQuantity}`,
+          );
+        }
+      }
+
       throw new NotFoundException('Record not found');
     }
 
@@ -434,13 +457,11 @@ export class RecordService {
 
     const descending = sort.startsWith('-');
     const rawField = descending ? sort.slice(1) : sort;
+    const normalizedField = RECORD_SORT_FIELDS[rawField];
 
-    const normalizedField =
-      rawField === 'created'
-        ? 'createdAt'
-        : rawField === 'lastModified'
-          ? 'updatedAt'
-          : rawField;
+    if (!normalizedField) {
+      return '-createdAt';
+    }
 
     return descending ? `-${normalizedField}` : normalizedField;
   }

@@ -4,8 +4,8 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { FilterQuery, Model } from 'mongoose';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { ClientSession, Connection, FilterQuery, Model } from 'mongoose';
 import { CancelOrderRequestDTO } from '../dtos/cancel-order.request.dto';
 import { CreateOrderRequestDTO } from '../dtos/create-order.request.dto';
 import { FindOrdersQueryDTO } from '../dtos/find-orders.query.dto';
@@ -14,7 +14,7 @@ import { Order } from '../schemas/order.schema';
 import { OrderSource, OrderStatus } from '../schemas/order.enum';
 import { Record } from '../schemas/record.schema';
 import { RecordListCacheService } from './record-list-cache.service';
-import { RecordService } from './record.service';
+import { RecordResponse, RecordService } from './record.service';
 
 export interface OrderResponse extends Order {
   created: Date;
@@ -40,9 +40,19 @@ const MUTABLE_STATUSES: OrderStatus[] = [
   OrderStatus.FULFILLED,
 ];
 
+const ORDER_SORT_FIELDS: { [key: string]: string } = {
+  status: 'status',
+  source: 'source',
+  created: 'createdAt',
+  createdAt: 'createdAt',
+  lastModified: 'updatedAt',
+  updatedAt: 'updatedAt',
+};
+
 @Injectable()
 export class OrderService {
   constructor(
+    @InjectConnection() private readonly connection: Connection,
     @InjectModel('Order') private readonly orderModel: Model<Order>,
     @InjectModel('Record') private readonly recordModel: Model<Record>,
     private readonly recordListCacheService: RecordListCacheService,
@@ -50,50 +60,47 @@ export class OrderService {
   ) {}
 
   async create(request: CreateOrderRequestDTO): Promise<OrderResponse> {
-    if (request.externalOrderId) {
-      const existingOrder = await this.orderModel
-        .findOne({
-          source: request.source ?? OrderSource.ADMIN,
-          externalOrderId: request.externalOrderId,
-        })
-        .exec();
+    return this.connection.transaction(async (session) => {
+      if (request.externalOrderId) {
+        const existingOrder = await this.findExistingExternalOrder(
+          request,
+          session,
+        );
 
-      if (existingOrder) {
-        return this.mapTimestamps(existingOrder);
+        if (existingOrder) {
+          return this.mapTimestamps(existingOrder);
+        }
       }
-    }
 
-    const updatedRecord = await this.recordService.adjustInventory(
-      String(request.recordId),
-      -request.quantity,
-    );
-
-    const unitPrice = updatedRecord.price;
-    const totalPrice = unitPrice * request.quantity;
-
-    let createdOrder: Order;
-
-    try {
-      createdOrder = await this.orderModel.create({
-        recordId: request.recordId,
-        quantity: request.quantity,
-        unitPrice,
-        totalPrice,
-        status: OrderStatus.CREATED,
-        source: request.source ?? OrderSource.ADMIN,
-        externalOrderId: request.externalOrderId,
-        customerRef: request.customerRef,
-        notes: request.notes,
-      });
-    } catch {
-      await this.recordService.adjustInventory(
+      const updatedRecord = await this.adjustInventory(
         String(request.recordId),
-        request.quantity,
+        -request.quantity,
+        session,
       );
-      throw new InternalServerErrorException('Failed to create order');
-    }
 
-    return this.mapTimestamps(createdOrder);
+      const unitPrice = updatedRecord.price;
+      const totalPrice = unitPrice * request.quantity;
+
+      try {
+        const createdOrder = await this.createOrder(
+          {
+            recordId: request.recordId,
+            quantity: request.quantity,
+            unitPrice,
+            totalPrice,
+            status: OrderStatus.CREATED,
+            source: request.source ?? OrderSource.ADMIN,
+            externalOrderId: request.externalOrderId,
+            customerRef: request.customerRef,
+            notes: request.notes,
+          },
+          session,
+        );
+        return this.mapTimestamps(createdOrder);
+      } catch {
+        throw new InternalServerErrorException('Failed to create order');
+      }
+    });
   }
 
   async findAll(query: FindOrdersQueryDTO): Promise<PaginatedOrdersResponse> {
@@ -136,94 +143,104 @@ export class OrderService {
     id: string,
     request: UpdateOrderRequestDTO,
   ): Promise<OrderResponse> {
-    const order = await this.orderModel.findById(id).exec();
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
+    return this.connection.transaction(async (session) => {
+      const order = await this.findOrderById(id, session);
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
 
-    if (!MUTABLE_STATUSES.includes(order.status)) {
-      throw new ConflictException(
-        'Order cannot be changed from its current status',
-      );
-    }
+      if (!MUTABLE_STATUSES.includes(order.status)) {
+        throw new ConflictException(
+          'Order cannot be changed from its current status',
+        );
+      }
 
-    if (request.status === OrderStatus.CANCELED) {
-      return this.cancel(id, {});
-    }
+      if (request.status === OrderStatus.CANCELED) {
+        return this.cancelInTransaction(order, {}, session);
+      }
 
-    if (
-      request.status &&
-      !this.isAllowedTransition(order.status, request.status)
-    ) {
-      throw new ConflictException(
-        `Invalid status transition from ${order.status} to ${request.status}`,
-      );
-    }
+      if (
+        request.status &&
+        !this.isAllowedTransition(order.status, request.status)
+      ) {
+        throw new ConflictException(
+          `Invalid status transition from ${order.status} to ${request.status}`,
+        );
+      }
 
-    if (request.status) {
-      order.status = request.status;
-    }
+      if (request.status) {
+        order.status = request.status;
+      }
 
-    if (request.customerRef !== undefined) {
-      order.customerRef = request.customerRef;
-    }
+      if (request.customerRef !== undefined) {
+        order.customerRef = request.customerRef;
+      }
 
-    if (request.notes !== undefined) {
-      order.notes = request.notes;
-    }
+      if (request.notes !== undefined) {
+        order.notes = request.notes;
+      }
 
-    if (request.quantity !== undefined && request.quantity !== order.quantity) {
-      return this.updateQuantity(id, request.quantity);
-    }
+      if (
+        request.quantity !== undefined &&
+        request.quantity !== order.quantity
+      ) {
+        await this.applyQuantityChange(order, request.quantity, session);
+      }
 
-    const updatedOrder = await order.save();
-    return this.mapTimestamps(updatedOrder);
+      const updatedOrder = await this.saveOrder(order, session);
+      return this.mapTimestamps(updatedOrder);
+    });
   }
 
   async updateQuantity(
     id: string,
     newQuantity: number,
   ): Promise<OrderResponse> {
-    const order = await this.orderModel.findById(id).exec();
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
+    return this.connection.transaction(async (session) => {
+      const order = await this.findOrderById(id, session);
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
 
-    if (!MUTABLE_STATUSES.includes(order.status)) {
-      throw new ConflictException(
-        'Order cannot be changed from its current status',
+      if (!MUTABLE_STATUSES.includes(order.status)) {
+        throw new ConflictException(
+          'Order cannot be changed from its current status',
+        );
+      }
+
+      const quantityDelta = await this.applyQuantityChange(
+        order,
+        newQuantity,
+        session,
       );
-    }
+      if (quantityDelta === 0) {
+        return this.mapTimestamps(order);
+      }
 
-    if (newQuantity === order.quantity) {
-      return this.mapTimestamps(order);
-    }
-
-    const quantityDelta = newQuantity - order.quantity;
-
-    const updatedRecord = await this.recordService.adjustInventory(
-      String(order.recordId),
-      -quantityDelta,
-    );
-
-    order.quantity = newQuantity;
-    order.unitPrice = updatedRecord.price;
-    order.totalPrice = order.unitPrice * order.quantity;
-
-    const updatedOrder = await order.save();
-
-    return this.mapTimestamps(updatedOrder);
+      const updatedOrder = await this.saveOrder(order, session);
+      return this.mapTimestamps(updatedOrder);
+    });
   }
 
   async cancel(
     id: string,
     request: CancelOrderRequestDTO,
   ): Promise<OrderResponse> {
-    const order = await this.orderModel.findById(id).exec();
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
+    return this.connection.transaction(async (session) => {
+      const order = await this.findOrderById(id, session);
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
 
+      return this.cancelInTransaction(order, request, session);
+    });
+  }
+
+  private async cancelInTransaction(
+    order: Order,
+    request: CancelOrderRequestDTO,
+    session: ClientSession,
+  ): Promise<OrderResponse> {
     if (order.status === OrderStatus.CANCELED) {
       throw new ConflictException('Order is already canceled');
     }
@@ -232,17 +249,97 @@ export class OrderService {
       throw new ConflictException('Fulfilled orders cannot be canceled');
     }
 
-    await this.recordService.adjustInventory(
-      String(order.recordId),
-      order.quantity,
-    );
+    await this.adjustInventory(String(order.recordId), order.quantity, session);
 
     order.status = OrderStatus.CANCELED;
     order.cancelReason = request.reason;
 
-    const canceledOrder = await order.save();
-
+    const canceledOrder = await this.saveOrder(order, session);
     return this.mapTimestamps(canceledOrder);
+  }
+
+  private async applyQuantityChange(
+    order: Order,
+    newQuantity: number,
+    session?: ClientSession,
+  ): Promise<number> {
+    if (newQuantity === order.quantity) {
+      return 0;
+    }
+
+    const quantityDelta = newQuantity - order.quantity;
+    const updatedRecord = await this.adjustInventory(
+      String(order.recordId),
+      -quantityDelta,
+      session,
+    );
+
+    order.quantity = newQuantity;
+    order.unitPrice = updatedRecord.price;
+    order.totalPrice = order.unitPrice * order.quantity;
+
+    return quantityDelta;
+  }
+
+  private async createOrder(
+    order: Partial<Order>,
+    session?: ClientSession,
+  ): Promise<Order> {
+    if (!session) {
+      return this.orderModel.create(order);
+    }
+
+    const [createdOrder] = await this.orderModel.create([order], { session });
+    return createdOrder;
+  }
+
+  private saveOrder(order: Order, session?: ClientSession): Promise<Order> {
+    if (!session) {
+      return order.save();
+    }
+
+    return order.save({ session });
+  }
+
+  private adjustInventory(
+    recordId: string,
+    delta: number,
+    session?: ClientSession,
+  ): Promise<RecordResponse> {
+    if (!session) {
+      return this.recordService.adjustInventory(recordId, delta);
+    }
+
+    return this.recordService.adjustInventory(recordId, delta, session);
+  }
+
+  private findOrderById(
+    id: string,
+    session?: ClientSession,
+  ): Promise<Order | null> {
+    let query = this.orderModel.findById(id);
+
+    if (session) {
+      query = query.session(session);
+    }
+
+    return query.exec();
+  }
+
+  private findExistingExternalOrder(
+    request: CreateOrderRequestDTO,
+    session?: ClientSession,
+  ): Promise<Order | null> {
+    let query = this.orderModel.findOne({
+      source: request.source ?? OrderSource.ADMIN,
+      externalOrderId: request.externalOrderId,
+    });
+
+    if (session) {
+      query = query.session(session);
+    }
+
+    return query.exec();
   }
 
   private buildFilter(query: FindOrdersQueryDTO): FilterQuery<Order> {
@@ -286,13 +383,11 @@ export class OrderService {
 
     const descending = sort.startsWith('-');
     const rawField = descending ? sort.slice(1) : sort;
+    const normalizedField = ORDER_SORT_FIELDS[rawField];
 
-    const normalizedField =
-      rawField === 'created'
-        ? 'createdAt'
-        : rawField === 'lastModified'
-          ? 'updatedAt'
-          : rawField;
+    if (!normalizedField) {
+      return '-createdAt';
+    }
 
     return descending ? `-${normalizedField}` : normalizedField;
   }

@@ -7,6 +7,8 @@ import {
   IsInt,
   IsEnum,
   IsOptional,
+  IsUUID,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { RecordFormat, RecordCategory } from '../schemas/record.enum';
@@ -73,6 +75,9 @@ export class CreateRecordRequestDTO {
     type: String,
     example: 'b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d',
   })
+  @ValidateIf((_, value) => value !== undefined && value !== '')
   @IsOptional()
+  @IsString()
+  @IsUUID('all')
   mbid?: string;
 }

@@ -46,6 +46,12 @@ describe('MusicbrainzService', () => {
 
     const tracks = await service.fetchTracklistByMbid('abc-123');
 
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/ws/2/release/abc-123'),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      }),
+    );
     expect(tracks).toEqual([
       { position: 1, title: 'Intro Song', duration: '1:01' },
       { position: 2, title: 'Fallback Recording Title', duration: '2:05' },

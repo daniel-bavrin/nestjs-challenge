@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { getModelToken } from '@nestjs/mongoose';
+import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { CancelOrderRequestDTO } from '../dtos/cancel-order.request.dto';
 import { CreateOrderRequestDTO } from '../dtos/create-order.request.dto';
@@ -23,11 +23,18 @@ describe('OrderService', () => {
   let recordModel: Model<Record>;
   let recordListCacheService: RecordListCacheService;
   let recordService: RecordService;
+  let connection: { transaction: jest.Mock };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrderService,
+        {
+          provide: getConnectionToken(),
+          useValue: {
+            transaction: jest.fn((operation) => operation(undefined)),
+          },
+        },
         {
           provide: getModelToken('Order'),
           useValue: {
@@ -62,6 +69,7 @@ describe('OrderService', () => {
     }).compile();
 
     orderService = module.get<OrderService>(OrderService);
+    connection = module.get(getConnectionToken());
     orderModel = module.get<Model<Order>>(getModelToken('Order'));
     recordModel = module.get<Model<Record>>(getModelToken('Record'));
     recordListCacheService = module.get<RecordListCacheService>(
@@ -107,6 +115,7 @@ describe('OrderService', () => {
 
     const result = await orderService.create(request);
 
+    expect(connection.transaction).toHaveBeenCalled();
     expect(recordService.adjustInventory).toHaveBeenCalledWith(
       request.recordId,
       -request.quantity,
@@ -235,6 +244,48 @@ describe('OrderService', () => {
     expect(result.items).toHaveLength(1);
   });
 
+  it('falls back to default sort for unsupported order sort fields', async () => {
+    const findChain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue([]),
+    };
+
+    jest.spyOn(orderModel, 'find').mockReturnValue(findChain as any);
+    jest.spyOn(orderModel, 'countDocuments').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(0),
+    } as any);
+
+    const query = new FindOrdersQueryDTO();
+    query.sort = 'customerRef';
+
+    await orderService.findAll(query);
+
+    expect(findChain.sort).toHaveBeenCalledWith('-createdAt');
+  });
+
+  it('maps supported order sort aliases to canonical fields', async () => {
+    const findChain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue([]),
+    };
+
+    jest.spyOn(orderModel, 'find').mockReturnValue(findChain as any);
+    jest.spyOn(orderModel, 'countDocuments').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(0),
+    } as any);
+
+    const query = new FindOrdersQueryDTO();
+    query.sort = '-lastModified';
+
+    await orderService.findAll(query);
+
+    expect(findChain.sort).toHaveBeenCalledWith('-updatedAt');
+  });
+
   it('returns single order by id', async () => {
     jest.spyOn(orderModel, 'findById').mockReturnValue({
       exec: jest.fn().mockResolvedValue({
@@ -289,6 +340,52 @@ describe('OrderService', () => {
 
     expect(result.status).toEqual(OrderStatus.FULFILLED);
     expect(save).toHaveBeenCalled();
+  });
+
+  it('preserves mutable field changes when quantity is updated in the same request', async () => {
+    const order = {
+      _id: 'o1',
+      recordId: 'r1',
+      quantity: 2,
+      unitPrice: 30,
+      totalPrice: 60,
+      status: OrderStatus.CREATED,
+      source: OrderSource.ADMIN,
+      notes: undefined,
+      customerRef: undefined,
+      save: jest.fn(),
+    } as any;
+    order.save.mockResolvedValue(order);
+
+    jest.spyOn(orderModel, 'findById').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(order),
+    } as any);
+
+    jest.spyOn(recordService, 'adjustInventory').mockResolvedValue({
+      _id: 'r1',
+      qty: 8,
+      price: 35,
+      created: new Date('2026-01-01T00:00:00.000Z'),
+      lastModified: new Date('2026-01-01T01:00:00.000Z'),
+    } as any);
+
+    const result = await orderService.update('o1', {
+      quantity: 3,
+      notes: 'Packed for pickup',
+      customerRef: 'CUST-1',
+      status: OrderStatus.FULFILLED,
+    });
+
+    expect(recordService.adjustInventory).toHaveBeenCalledWith('r1', -1);
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toMatchObject({
+      quantity: 3,
+      unitPrice: 35,
+      totalPrice: 105,
+      notes: 'Packed for pickup',
+      customerRef: 'CUST-1',
+      status: OrderStatus.FULFILLED,
+    });
   });
 
   it('throws ConflictException on invalid status transition', async () => {
@@ -475,6 +572,30 @@ describe('OrderService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('lets transaction rollback handle inventory when quantity update save fails', async () => {
+    jest.spyOn(orderModel, 'findById').mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: 'o1',
+        recordId: 'r1',
+        quantity: 2,
+        status: OrderStatus.CREATED,
+        save: jest.fn().mockRejectedValue(new Error('db update failed')),
+      }),
+    } as any);
+
+    jest
+      .spyOn(recordService, 'adjustInventory')
+      .mockResolvedValue({ _id: 'r1', price: 30, qty: 9 } as any);
+
+    await expect(orderService.updateQuantity('o1', 3)).rejects.toThrow(
+      'db update failed',
+    );
+
+    expect(connection.transaction).toHaveBeenCalled();
+    expect(recordService.adjustInventory).toHaveBeenCalledTimes(1);
+    expect(recordService.adjustInventory).toHaveBeenCalledWith('r1', -1);
+  });
+
   it('throws ConflictException when updating quantity on immutable order', async () => {
     jest.spyOn(orderModel, 'findById').mockReturnValue({
       exec: jest.fn().mockResolvedValue({
@@ -488,7 +609,7 @@ describe('OrderService', () => {
     );
   });
 
-  it('rolls back inventory when order create fails after stock reservation', async () => {
+  it('lets transaction rollback handle inventory when order create fails after stock reservation', async () => {
     const request: CreateOrderRequestDTO = {
       recordId: '6821b4fd25b68ab63ec4f9a5',
       quantity: 2,
@@ -525,11 +646,7 @@ describe('OrderService', () => {
       request.recordId,
       -request.quantity,
     );
-    expect(recordService.adjustInventory).toHaveBeenNthCalledWith(
-      2,
-      request.recordId,
-      request.quantity,
-    );
+    expect(recordService.adjustInventory).toHaveBeenCalledTimes(1);
   });
 
   it('throws ConflictException when canceling a fulfilled order', async () => {
@@ -544,5 +661,29 @@ describe('OrderService', () => {
       ConflictException,
     );
     expect(recordService.adjustInventory).not.toHaveBeenCalled();
+  });
+
+  it('lets transaction rollback handle restock when cancel save fails', async () => {
+    jest.spyOn(orderModel, 'findById').mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: 'o1',
+        recordId: 'r1',
+        quantity: 2,
+        status: OrderStatus.CREATED,
+        save: jest.fn().mockRejectedValue(new Error('db update failed')),
+      }),
+    } as any);
+
+    jest
+      .spyOn(recordService, 'adjustInventory')
+      .mockResolvedValue({ _id: 'r1', price: 30, qty: 10 } as any);
+
+    await expect(orderService.cancel('o1', {})).rejects.toThrow(
+      'db update failed',
+    );
+
+    expect(connection.transaction).toHaveBeenCalled();
+    expect(recordService.adjustInventory).toHaveBeenCalledTimes(1);
+    expect(recordService.adjustInventory).toHaveBeenCalledWith('r1', 2);
   });
 });
