@@ -44,7 +44,9 @@ export class OrderV1Controller {
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'sort', required: false, type: String })
-  async findAll(@Query() query: FindOrdersQueryDTO): Promise<PaginatedOrdersResponse> {
+  async findAll(
+    @Query() query: FindOrdersQueryDTO,
+  ): Promise<PaginatedOrdersResponse> {
     return this.orderService.findAll(query);
   }
 

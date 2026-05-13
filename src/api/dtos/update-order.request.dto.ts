@@ -8,13 +8,21 @@ export class UpdateOrderRequestDTO {
   @IsEnum(OrderStatus)
   status?: OrderStatus;
 
-  @ApiPropertyOptional({ type: String, description: 'Optional customer reference', maxLength: 120 })
+  @ApiPropertyOptional({
+    type: String,
+    description: 'Optional customer reference',
+    maxLength: 120,
+  })
   @IsOptional()
   @IsString()
   @MaxLength(120)
   customerRef?: string;
 
-  @ApiPropertyOptional({ type: String, description: 'Optional admin/POS notes', maxLength: 500 })
+  @ApiPropertyOptional({
+    type: String,
+    description: 'Optional admin/POS notes',
+    maxLength: 500,
+  })
   @IsOptional()
   @IsString()
   @MaxLength(500)

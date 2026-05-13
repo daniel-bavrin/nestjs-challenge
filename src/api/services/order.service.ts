@@ -35,7 +35,10 @@ export interface PaginatedOrdersResponse {
   meta: PaginatedOrdersMeta;
 }
 
-const MUTABLE_STATUSES: OrderStatus[] = [OrderStatus.CREATED, OrderStatus.FULFILLED];
+const MUTABLE_STATUSES: OrderStatus[] = [
+  OrderStatus.CREATED,
+  OrderStatus.FULFILLED,
+];
 
 @Injectable()
 export class OrderService {
@@ -114,7 +117,7 @@ export class OrderService {
       throw new InternalServerErrorException('Failed to create order');
     }
 
-    await this.recordListCacheService.invalidateAll();
+    await this.recordListCacheService.invalidateItem(String(request.recordId));
 
     return this.mapTimestamps(createdOrder);
   }
@@ -155,21 +158,29 @@ export class OrderService {
     return this.mapTimestamps(order);
   }
 
-  async update(id: string, request: UpdateOrderRequestDTO): Promise<OrderResponse> {
+  async update(
+    id: string,
+    request: UpdateOrderRequestDTO,
+  ): Promise<OrderResponse> {
     const order = await this.orderModel.findById(id).exec();
     if (!order) {
       throw new NotFoundException('Order not found');
     }
 
     if (!MUTABLE_STATUSES.includes(order.status)) {
-      throw new ConflictException('Order cannot be changed from its current status');
+      throw new ConflictException(
+        'Order cannot be changed from its current status',
+      );
     }
 
     if (request.status === OrderStatus.CANCELED) {
       return this.cancel(id, {});
     }
 
-    if (request.status && !this.isAllowedTransition(order.status, request.status)) {
+    if (
+      request.status &&
+      !this.isAllowedTransition(order.status, request.status)
+    ) {
       throw new ConflictException(
         `Invalid status transition from ${order.status} to ${request.status}`,
       );
@@ -191,7 +202,10 @@ export class OrderService {
     return this.mapTimestamps(updatedOrder);
   }
 
-  async cancel(id: string, request: CancelOrderRequestDTO): Promise<OrderResponse> {
+  async cancel(
+    id: string,
+    request: CancelOrderRequestDTO,
+  ): Promise<OrderResponse> {
     const order = await this.orderModel.findById(id).exec();
     if (!order) {
       throw new NotFoundException('Order not found');
@@ -218,7 +232,9 @@ export class OrderService {
       .exec();
 
     if (restockResult.modifiedCount !== 1) {
-      throw new BadRequestException('Associated record not available for restock');
+      throw new BadRequestException(
+        'Associated record not available for restock',
+      );
     }
 
     order.status = OrderStatus.CANCELED;
@@ -226,7 +242,7 @@ export class OrderService {
 
     const canceledOrder = await order.save();
 
-    await this.recordListCacheService.invalidateAll();
+    await this.recordListCacheService.invalidateItem(String(order.recordId));
 
     return this.mapTimestamps(canceledOrder);
   }
@@ -283,7 +299,10 @@ export class OrderService {
     return descending ? `-${normalizedField}` : normalizedField;
   }
 
-  private isAllowedTransition(current: OrderStatus, next: OrderStatus): boolean {
+  private isAllowedTransition(
+    current: OrderStatus,
+    next: OrderStatus,
+  ): boolean {
     if (current === next) {
       return true;
     }

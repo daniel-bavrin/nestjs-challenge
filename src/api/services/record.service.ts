@@ -87,7 +87,10 @@ export class RecordService {
     }
     record.deletedAt = new Date();
     await record.save();
-    await this.recordListCacheService.invalidateAll();
+    await Promise.all([
+      this.recordListCacheService.invalidateItem(id),
+      this.recordListCacheService.invalidateAll(),
+    ]);
   }
 
   async update(
@@ -129,7 +132,10 @@ export class RecordService {
         }
       }
 
-      await this.recordListCacheService.invalidateAll();
+      await Promise.all([
+        this.recordListCacheService.invalidateItem(id),
+        this.recordListCacheService.invalidateAll(),
+      ]);
 
       return this.mapTimestamps(updatedRecord);
     } catch {
@@ -209,6 +215,12 @@ export class RecordService {
   }
 
   async findOne(id: string): Promise<RecordResponse> {
+    const cached =
+      await this.recordListCacheService.getItem<RecordResponse>(id);
+    if (cached) {
+      return cached;
+    }
+
     const record = await this.recordModel.findOne({
       _id: id,
       deletedAt: null,
@@ -216,7 +228,10 @@ export class RecordService {
     if (!record) {
       throw new NotFoundException('Record not found');
     }
-    return this.mapTimestamps(record);
+
+    const response = this.mapTimestamps(record);
+    await this.recordListCacheService.setItem(id, response);
+    return response;
   }
 
   async softDeleteV0(id: string): Promise<void> {

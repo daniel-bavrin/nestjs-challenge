@@ -248,7 +248,10 @@ describe('RecordController (e2e)', () => {
       .expect(200);
 
     expect(cancelResponse.body).toHaveProperty('status', 'canceled');
-    expect(cancelResponse.body).toHaveProperty('cancelReason', 'Customer request');
+    expect(cancelResponse.body).toHaveProperty(
+      'cancelReason',
+      'Customer request',
+    );
 
     const recordListResponse = await request(app.getHttpServer())
       .get('/v1/records?artist=Admin Orders Band')

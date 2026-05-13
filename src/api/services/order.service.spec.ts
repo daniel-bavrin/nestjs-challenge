@@ -47,7 +47,7 @@ describe('OrderService', () => {
         {
           provide: RecordListCacheService,
           useValue: {
-            invalidateAll: jest.fn().mockResolvedValue(undefined),
+            invalidateItem: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],
@@ -124,7 +124,9 @@ describe('OrderService', () => {
     });
     expect(result).toHaveProperty('created');
     expect(result).toHaveProperty('lastModified');
-    expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
+    expect(recordListCacheService.invalidateItem).toHaveBeenCalledWith(
+      request.recordId,
+    );
   });
 
   it('returns existing order for duplicated source+externalOrderId request', async () => {
@@ -219,7 +221,9 @@ describe('OrderService', () => {
 
     const result = await orderService.findAll(query);
 
-    expect(orderModel.find).toHaveBeenCalledWith({ status: OrderStatus.CREATED });
+    expect(orderModel.find).toHaveBeenCalledWith({
+      status: OrderStatus.CREATED,
+    });
     expect(result.meta.total).toBe(1);
     expect(result.items).toHaveLength(1);
   });
@@ -329,7 +333,7 @@ describe('OrderService', () => {
       { $inc: { qty: 2 } },
     );
     expect(result.status).toEqual(OrderStatus.CANCELED);
-    expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
+    expect(recordListCacheService.invalidateItem).toHaveBeenCalledWith('r1');
   });
 
   it('throws ConflictException when canceling an already canceled order', async () => {

@@ -4,6 +4,7 @@ import { AppConfig } from '../../app.config';
 import { REDIS_CLIENT } from '../jobs/tracklist-queue.constants';
 
 const RECORD_LIST_CACHE_PREFIX = 'records:list';
+const RECORD_ITEM_CACHE_PREFIX = 'records:item';
 
 @Injectable()
 export class RecordListCacheService {
@@ -33,6 +34,27 @@ export class RecordListCacheService {
       'EX',
       AppConfig.recordListCacheTtlSeconds,
     );
+  }
+
+  async getItem<T>(id: string): Promise<T | null> {
+    const cached = await this.redis.get(`${RECORD_ITEM_CACHE_PREFIX}:${id}`);
+    if (!cached) {
+      return null;
+    }
+    return JSON.parse(cached) as T;
+  }
+
+  async setItem(id: string, payload: unknown): Promise<void> {
+    await this.redis.set(
+      `${RECORD_ITEM_CACHE_PREFIX}:${id}`,
+      JSON.stringify(payload),
+      'EX',
+      AppConfig.recordListCacheTtlSeconds,
+    );
+  }
+
+  async invalidateItem(id: string): Promise<void> {
+    await this.redis.del(`${RECORD_ITEM_CACHE_PREFIX}:${id}`);
   }
 
   async invalidateAll(): Promise<void> {

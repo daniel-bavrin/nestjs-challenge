@@ -50,6 +50,9 @@ describe('RecordService', () => {
           useValue: {
             get: jest.fn().mockResolvedValue(null),
             set: jest.fn().mockResolvedValue(undefined),
+            getItem: jest.fn().mockResolvedValue(null),
+            setItem: jest.fn().mockResolvedValue(undefined),
+            invalidateItem: jest.fn().mockResolvedValue(undefined),
             invalidateAll: jest.fn().mockResolvedValue(undefined),
           },
         },
@@ -165,6 +168,7 @@ describe('RecordService', () => {
       (savedRecord as unknown as { save: jest.Mock }).save,
     ).toHaveBeenCalled();
     expect(tracklistQueue.add).not.toHaveBeenCalled();
+    expect(recordListCacheService.invalidateItem).toHaveBeenCalledWith('1');
     expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
   });
 
@@ -459,6 +463,9 @@ describe('RecordService', () => {
     });
     expect((record as any).deletedAt).toBeInstanceOf(Date);
     expect(saveMock).toHaveBeenCalled();
+    expect(recordListCacheService.invalidateItem).toHaveBeenCalledWith(
+      'record-id',
+    );
     expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
   });
 
@@ -482,12 +489,37 @@ describe('RecordService', () => {
 
     const result = await recordService.findOne('r1');
 
-    expect(recordModel.findOne).toHaveBeenCalledWith({ _id: 'r1', deletedAt: null });
+    expect(recordModel.findOne).toHaveBeenCalledWith({
+      _id: 'r1',
+      deletedAt: null,
+    });
+    expect(recordListCacheService.getItem).toHaveBeenCalledWith('r1');
+    expect(recordListCacheService.setItem).toHaveBeenCalledWith(
+      'r1',
+      expect.objectContaining({ _id: 'r1' }),
+    );
     expect(result).toMatchObject({
       _id: 'r1',
       created: new Date('2026-01-01T00:00:00.000Z'),
       lastModified: new Date('2026-01-02T00:00:00.000Z'),
     });
+  });
+
+  it('returns cached item when available for findOne', async () => {
+    const cached = {
+      _id: 'r1',
+      artist: 'Cached Artist',
+      created: new Date('2026-01-01T00:00:00.000Z'),
+      lastModified: new Date('2026-01-02T00:00:00.000Z'),
+    };
+    jest
+      .spyOn(recordListCacheService, 'getItem')
+      .mockResolvedValueOnce(cached as any);
+
+    const result = await recordService.findOne('r1');
+
+    expect(result).toEqual(cached);
+    expect(recordModel.findOne).not.toHaveBeenCalled();
   });
 
   it('throws NotFoundException when record not found', async () => {

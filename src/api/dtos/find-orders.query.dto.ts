@@ -1,15 +1,29 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsMongoId, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsMongoId,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import { OrderSource, OrderStatus } from '../schemas/order.enum';
 
 export class FindOrdersQueryDTO {
-  @ApiPropertyOptional({ enum: OrderStatus, description: 'Filter by order status' })
+  @ApiPropertyOptional({
+    enum: OrderStatus,
+    description: 'Filter by order status',
+  })
   @IsOptional()
   @IsEnum(OrderStatus)
   status?: OrderStatus;
 
-  @ApiPropertyOptional({ enum: OrderSource, description: 'Filter by order source' })
+  @ApiPropertyOptional({
+    enum: OrderSource,
+    description: 'Filter by order source',
+  })
   @IsOptional()
   @IsEnum(OrderSource)
   source?: OrderSource;
@@ -19,17 +33,28 @@ export class FindOrdersQueryDTO {
   @IsMongoId()
   recordId?: string;
 
-  @ApiPropertyOptional({ type: String, description: 'Filter by external order id' })
+  @ApiPropertyOptional({
+    type: String,
+    description: 'Filter by external order id',
+  })
   @IsOptional()
   @IsString()
   externalOrderId?: string;
 
-  @ApiPropertyOptional({ type: String, format: 'date-time', description: 'Created after or equal' })
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date-time',
+    description: 'Created after or equal',
+  })
   @IsOptional()
   @IsDateString()
   from?: string;
 
-  @ApiPropertyOptional({ type: String, format: 'date-time', description: 'Created before or equal' })
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date-time',
+    description: 'Created before or equal',
+  })
   @IsOptional()
   @IsDateString()
   to?: string;
@@ -49,7 +74,8 @@ export class FindOrdersQueryDTO {
 
   @ApiPropertyOptional({
     type: String,
-    description: 'Sort field, prefix with - for descending. Allowed: created,lastModified,status,source',
+    description:
+      'Sort field, prefix with - for descending. Allowed: created,lastModified,status,source',
   })
   @IsOptional()
   @IsString()
