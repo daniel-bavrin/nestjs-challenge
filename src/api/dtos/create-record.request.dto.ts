@@ -49,7 +49,7 @@ export class CreateRecordRequestDTO {
   })
   @IsInt()
   @Min(0)
-  @Max(100)
+  @Max(1000)
   qty: number;
 
   @ApiProperty({
