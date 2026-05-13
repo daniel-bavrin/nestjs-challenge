@@ -208,6 +208,17 @@ export class RecordService {
     return response;
   }
 
+  async findOne(id: string): Promise<RecordResponse> {
+    const record = await this.recordModel.findOne({
+      _id: id,
+      deletedAt: null,
+    });
+    if (!record) {
+      throw new NotFoundException('Record not found');
+    }
+    return this.mapTimestamps(record);
+  }
+
   async softDeleteV0(id: string): Promise<void> {
     return this.softDelete(id);
   }

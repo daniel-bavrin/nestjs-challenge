@@ -470,6 +470,34 @@ describe('RecordService', () => {
     );
   });
 
+  it('returns a single record by id', async () => {
+    const record = {
+      _id: 'r1',
+      artist: 'The Beatles',
+      album: 'Abbey Road',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+    } as unknown as Record;
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(record);
+
+    const result = await recordService.findOne('r1');
+
+    expect(recordModel.findOne).toHaveBeenCalledWith({ _id: 'r1', deletedAt: null });
+    expect(result).toMatchObject({
+      _id: 'r1',
+      created: new Date('2026-01-01T00:00:00.000Z'),
+      lastModified: new Date('2026-01-02T00:00:00.000Z'),
+    });
+  });
+
+  it('throws NotFoundException when record not found', async () => {
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(null);
+
+    await expect(recordService.findOne('missing')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
   it('update() scopes lookup to non-deleted records', async () => {
     const savedRecord = {
       mbid: undefined,

@@ -192,6 +192,71 @@ describe('RecordController (e2e)', () => {
     );
   });
 
+  it('should support orders list/get/update/cancel admin flows', async () => {
+    const createRecordResponse = await request(app.getHttpServer())
+      .post('/v1/records')
+      .send({
+        artist: 'Admin Orders Band',
+        album: 'Dashboard Ready',
+        price: 40,
+        qty: 3,
+        format: RecordFormat.CD,
+        category: RecordCategory.ROCK,
+      })
+      .expect(201);
+
+    const recordId = createRecordResponse.body._id;
+    recordIds.push(recordId);
+
+    const createOrderResponse = await request(app.getHttpServer())
+      .post('/v1/orders')
+      .send({
+        recordId,
+        quantity: 1,
+        source: 'admin',
+        externalOrderId: `ADM-${Date.now()}`,
+      })
+      .expect(201);
+
+    const orderId = createOrderResponse.body._id;
+    orderIds.push(orderId);
+
+    const listResponse = await request(app.getHttpServer())
+      .get('/v1/orders?source=admin')
+      .expect(200);
+
+    expect(listResponse.body).toHaveProperty('items');
+    expect(listResponse.body).toHaveProperty('meta');
+
+    const getResponse = await request(app.getHttpServer())
+      .get(`/v1/orders/${orderId}`)
+      .expect(200);
+
+    expect(getResponse.body).toHaveProperty('_id', orderId);
+    expect(getResponse.body).toHaveProperty('status', 'created');
+
+    const updateResponse = await request(app.getHttpServer())
+      .patch(`/v1/orders/${orderId}`)
+      .send({ notes: 'Packed for pickup' })
+      .expect(200);
+
+    expect(updateResponse.body).toHaveProperty('notes', 'Packed for pickup');
+
+    const cancelResponse = await request(app.getHttpServer())
+      .post(`/v1/orders/${orderId}/cancel`)
+      .send({ reason: 'Customer request' })
+      .expect(200);
+
+    expect(cancelResponse.body).toHaveProperty('status', 'canceled');
+    expect(cancelResponse.body).toHaveProperty('cancelReason', 'Customer request');
+
+    const recordListResponse = await request(app.getHttpServer())
+      .get('/v1/records?artist=Admin Orders Band')
+      .expect(200);
+
+    expect(recordListResponse.body.items[0]).toHaveProperty('qty', 3);
+  });
+
   afterEach(async () => {
     for (const id of orderIds) {
       await orderModel.findByIdAndDelete(id);
