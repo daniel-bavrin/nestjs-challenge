@@ -414,7 +414,10 @@ export class RecordService {
       throw new NotFoundException('Record not found');
     }
 
-    await this.recordListCacheService.invalidateItem(String(recordId));
+    await Promise.all([
+      this.recordListCacheService.invalidateItem(String(recordId)),
+      this.recordListCacheService.invalidateAll(),
+    ]);
 
     return this.mapTimestamps(updatedRecord);
   }

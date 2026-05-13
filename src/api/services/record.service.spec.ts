@@ -47,6 +47,7 @@ describe('RecordService', () => {
             create: jest.fn(),
             findById: jest.fn(),
             findOne: jest.fn(),
+            findOneAndUpdate: jest.fn(),
             find: jest.fn(),
             countDocuments: jest.fn(),
           },
@@ -675,5 +676,79 @@ describe('RecordService', () => {
       _id: '1',
       deletedAt: null,
     });
+  });
+
+  it('escapes regex metacharacters in query text filters', async () => {
+    const findChain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue([]),
+    };
+    jest.spyOn(recordModel, 'find').mockReturnValue(findChain as any);
+    jest.spyOn(recordModel, 'countDocuments').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(0),
+    } as any);
+
+    const query = new FindRecordsQueryDTO();
+    query.q = 'A.*(B)+?';
+
+    await recordService.findAll(query);
+
+    const filterArg = (recordModel.find as jest.Mock).mock.calls[0][0];
+    expect(filterArg.$or[0].artist).toEqual(/A\.\*\(B\)\+\?/i);
+    expect(filterArg.$or[1].album).toEqual(/A\.\*\(B\)\+\?/i);
+    expect(filterArg.$or[2].category).toEqual(/A\.\*\(B\)\+\?/i);
+  });
+
+  it('maps created sort field to createdAt', async () => {
+    const findChain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue([]),
+    };
+
+    jest.spyOn(recordModel, 'find').mockReturnValue(findChain as any);
+    jest.spyOn(recordModel, 'countDocuments').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(0),
+    } as any);
+
+    const query = new FindRecordsQueryDTO();
+    query.sort = 'created';
+
+    await recordService.findAll(query);
+
+    expect(findChain.sort).toHaveBeenCalledWith('createdAt');
+  });
+
+  it('adjustInventory invalidates item and list caches on successful change', async () => {
+    jest.spyOn(recordModel, 'findOneAndUpdate').mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: 'r1',
+        qty: 7,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+      }),
+    } as any);
+
+    const result = await recordService.adjustInventory('r1', 1);
+
+    expect(recordListCacheService.invalidateItem).toHaveBeenCalledWith('r1');
+    expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
+    expect(result).toHaveProperty('qty', 7);
+  });
+
+  it('adjustInventory delegates to findOne when delta is zero', async () => {
+    const findOneSpy = jest.spyOn(recordService, 'findOne').mockResolvedValue({
+      _id: 'r1',
+      created: new Date('2026-01-01T00:00:00.000Z'),
+      lastModified: new Date('2026-01-02T00:00:00.000Z'),
+    } as any);
+
+    await recordService.adjustInventory('r1', 0);
+
+    expect(findOneSpy).toHaveBeenCalledWith('r1');
+    expect(recordModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 });
