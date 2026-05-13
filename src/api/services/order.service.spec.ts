@@ -487,4 +487,62 @@ describe('OrderService', () => {
       ConflictException,
     );
   });
+
+  it('rolls back inventory when order create fails after stock reservation', async () => {
+    const request: CreateOrderRequestDTO = {
+      recordId: '6821b4fd25b68ab63ec4f9a5',
+      quantity: 2,
+      source: OrderSource.ADMIN,
+    };
+
+    jest.spyOn(orderModel, 'findOne').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(null),
+    } as any);
+
+    jest
+      .spyOn(recordService, 'adjustInventory')
+      .mockResolvedValueOnce({
+        _id: request.recordId,
+        price: 30,
+        qty: 8,
+      } as any)
+      .mockResolvedValueOnce({
+        _id: request.recordId,
+        price: 30,
+        qty: 10,
+      } as any);
+
+    jest
+      .spyOn(orderModel as any, 'create')
+      .mockRejectedValue(new Error('db insert failed'));
+
+    await expect(orderService.create(request)).rejects.toThrow(
+      'Failed to create order',
+    );
+
+    expect(recordService.adjustInventory).toHaveBeenNthCalledWith(
+      1,
+      request.recordId,
+      -request.quantity,
+    );
+    expect(recordService.adjustInventory).toHaveBeenNthCalledWith(
+      2,
+      request.recordId,
+      request.quantity,
+    );
+  });
+
+  it('throws ConflictException when canceling a fulfilled order', async () => {
+    jest.spyOn(orderModel, 'findById').mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: 'o1',
+        status: OrderStatus.FULFILLED,
+      }),
+    } as any);
+
+    await expect(orderService.cancel('o1', {})).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(recordService.adjustInventory).not.toHaveBeenCalled();
+  });
 });

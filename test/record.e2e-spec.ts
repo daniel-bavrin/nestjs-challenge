@@ -99,6 +99,101 @@ describe('RecordController (e2e)', () => {
     expect(listResponse.body.items[0]).toHaveProperty('tracklist');
   });
 
+  it('should paginate v1 records deterministically', async () => {
+    const marker = `Pager-${Date.now()}`;
+    const payloads = [
+      {
+        artist: marker,
+        album: 'Page One',
+        price: 10,
+        qty: 2,
+        format: RecordFormat.CD,
+        category: RecordCategory.ROCK,
+      },
+      {
+        artist: marker,
+        album: 'Page Two',
+        price: 11,
+        qty: 2,
+        format: RecordFormat.CD,
+        category: RecordCategory.ROCK,
+      },
+      {
+        artist: marker,
+        album: 'Page Three',
+        price: 12,
+        qty: 2,
+        format: RecordFormat.CD,
+        category: RecordCategory.ROCK,
+      },
+    ];
+
+    for (const payload of payloads) {
+      const response = await request(app.getHttpServer())
+        .post('/v1/records')
+        .send(payload)
+        .expect(201);
+      recordIds.push(response.body._id);
+    }
+
+    const pageOne = await request(app.getHttpServer())
+      .get(
+        `/v1/records?artist=${encodeURIComponent(marker)}&page=1&limit=1&sort=album`,
+      )
+      .expect(200);
+
+    const pageTwo = await request(app.getHttpServer())
+      .get(
+        `/v1/records?artist=${encodeURIComponent(marker)}&page=2&limit=1&sort=album`,
+      )
+      .expect(200);
+
+    expect(pageOne.body.meta.total).toBe(3);
+    expect(pageOne.body.meta.totalPages).toBe(3);
+    expect(pageOne.body.meta.hasNextPage).toBe(true);
+    expect(pageTwo.body.meta.hasPrevPage).toBe(true);
+    expect(pageOne.body.items[0].album).not.toEqual(
+      pageTwo.body.items[0].album,
+    );
+  });
+
+  it('should support MBID create/update and reject fill-tracklist when MBID missing', async () => {
+    const createResponse = await request(app.getHttpServer())
+      .post('/v1/records')
+      .send({
+        artist: 'MBID Band',
+        album: 'With MBID',
+        price: 22,
+        qty: 4,
+        format: RecordFormat.VINYL,
+        category: RecordCategory.INDIE,
+        mbid: '11111111-1111-1111-1111-111111111111',
+      })
+      .expect(201);
+
+    const recordId = createResponse.body._id;
+    recordIds.push(recordId);
+    expect(createResponse.body).toHaveProperty(
+      'mbid',
+      '11111111-1111-1111-1111-111111111111',
+    );
+
+    const updateResponse = await request(app.getHttpServer())
+      .put(`/v1/records/${recordId}`)
+      .send({ mbid: '' })
+      .expect(200);
+
+    expect(updateResponse.body).toHaveProperty('mbid', '');
+    expect(updateResponse.body.tracklist).toEqual([]);
+
+    const fillResponse = await request(app.getHttpServer())
+      .post(`/v1/records/${recordId}/fill-tracklist`)
+      .send({})
+      .expect(400);
+
+    expect(fillResponse.body.message).toContain('Record has no mbid');
+  });
+
   it('should soft-delete a record and exclude it from subsequent list results', async () => {
     const createRecordDto = {
       artist: 'The Deleted Band',
@@ -258,6 +353,95 @@ describe('RecordController (e2e)', () => {
       .expect(200);
 
     expect(recordListResponse.body.items[0]).toHaveProperty('qty', 3);
+  });
+
+  it('should update order quantity and fail when inventory is insufficient', async () => {
+    const createRecordResponse = await request(app.getHttpServer())
+      .post('/v1/records')
+      .send({
+        artist: 'Order Qty Band',
+        album: 'Mutable Qty',
+        price: 30,
+        qty: 5,
+        format: RecordFormat.CD,
+        category: RecordCategory.ROCK,
+      })
+      .expect(201);
+
+    const recordId = createRecordResponse.body._id;
+    recordIds.push(recordId);
+
+    const createOrderResponse = await request(app.getHttpServer())
+      .post('/v1/orders')
+      .send({ recordId, quantity: 2 })
+      .expect(201);
+
+    const orderId = createOrderResponse.body._id;
+    orderIds.push(orderId);
+
+    const increaseResponse = await request(app.getHttpServer())
+      .patch(`/v1/orders/${orderId}`)
+      .send({ quantity: 4 })
+      .expect(200);
+
+    expect(increaseResponse.body).toHaveProperty('quantity', 4);
+
+    const tooLarge = await request(app.getHttpServer())
+      .patch(`/v1/orders/${orderId}`)
+      .send({ quantity: 10 })
+      .expect(400);
+
+    expect(tooLarge.body.message).toContain('Insufficient stock');
+  });
+
+  it('should keep cached record list consistent after order writes', async () => {
+    const marker = `Cache Fresh Band ${Date.now()}`;
+
+    const createRecordResponse = await request(app.getHttpServer())
+      .post('/v1/records')
+      .send({
+        artist: marker,
+        album: 'Cache Fresh Album',
+        price: 18,
+        qty: 6,
+        format: RecordFormat.VINYL,
+        category: RecordCategory.ALTERNATIVE,
+      })
+      .expect(201);
+
+    const recordId = createRecordResponse.body._id;
+    recordIds.push(recordId);
+
+    const warmResponse = await request(app.getHttpServer())
+      .get(`/v1/records?artist=${encodeURIComponent(marker)}`)
+      .expect(200);
+
+    expect(warmResponse.body.items[0]).toHaveProperty('qty', 6);
+
+    const createOrderResponse = await request(app.getHttpServer())
+      .post('/v1/orders')
+      .send({ recordId, quantity: 2 })
+      .expect(201);
+
+    const orderId = createOrderResponse.body._id;
+    orderIds.push(orderId);
+
+    const afterOrderResponse = await request(app.getHttpServer())
+      .get(`/v1/records?artist=${encodeURIComponent(marker)}`)
+      .expect(200);
+
+    expect(afterOrderResponse.body.items[0]).toHaveProperty('qty', 4);
+
+    await request(app.getHttpServer())
+      .post(`/v1/orders/${orderId}/cancel`)
+      .send({ reason: 'cache consistency check' })
+      .expect(200);
+
+    const afterCancelResponse = await request(app.getHttpServer())
+      .get(`/v1/records?artist=${encodeURIComponent(marker)}`)
+      .expect(200);
+
+    expect(afterCancelResponse.body.items[0]).toHaveProperty('qty', 6);
   });
 
   afterEach(async () => {
