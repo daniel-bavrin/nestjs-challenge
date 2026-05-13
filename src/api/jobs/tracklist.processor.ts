@@ -16,6 +16,7 @@ import {
 import { Record } from '../schemas/record.schema';
 import { Track } from '../schemas/record.schema';
 import { AppConfig } from '../../app.config';
+import { RecordListCacheService } from '../services/record-list-cache.service';
 
 interface FetchTracklistJobPayload {
   recordId: string;
@@ -31,6 +32,7 @@ export class TracklistProcessor extends WorkerHost {
     private readonly tracklistProvider: TracklistProvider,
     @InjectModel('Record') private readonly recordModel: Model<Record>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly recordListCacheService: RecordListCacheService,
   ) {
     super();
   }
@@ -44,12 +46,19 @@ export class TracklistProcessor extends WorkerHost {
     const { recordId, externalId } = job.data;
     const tracklist = await this.getTracklist(externalId);
 
-    await this.recordModel
+    const updateResult = await this.recordModel
       .updateOne(
         { _id: recordId, deletedAt: null, mbid: externalId },
         { $set: { tracklist } },
       )
       .exec();
+
+    if (updateResult.modifiedCount === 1) {
+      await Promise.all([
+        this.recordListCacheService.invalidateItem(recordId),
+        this.recordListCacheService.invalidateAll(),
+      ]);
+    }
   }
 
   private async getTracklist(externalId: string): Promise<Track[]> {

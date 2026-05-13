@@ -7,6 +7,7 @@ import { Record } from '../schemas/record.schema';
 import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
 import { RecordCategory, RecordFormat } from '../schemas/record.enum';
 import {
+  BadRequestException,
   NotFoundException,
   InternalServerErrorException,
 } from '@nestjs/common';
@@ -18,12 +19,17 @@ import {
   TRACKLIST_QUEUE,
 } from '../jobs/tracklist-queue.constants';
 import { RecordListCacheService } from './record-list-cache.service';
+import {
+  TRACKLIST_PROVIDER,
+  TracklistProvider,
+} from '../interfaces/tracklist-provider.interface';
 
 describe('RecordService', () => {
   let recordService: RecordService;
   let recordModel: Model<Record>;
   let tracklistQueue: Queue;
   let recordListCacheService: RecordListCacheService;
+  let tracklistProvider: TracklistProvider;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -56,6 +62,12 @@ describe('RecordService', () => {
             invalidateAll: jest.fn().mockResolvedValue(undefined),
           },
         },
+        {
+          provide: TRACKLIST_PROVIDER,
+          useValue: {
+            fetchTracklist: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -65,6 +77,7 @@ describe('RecordService', () => {
     recordListCacheService = module.get<RecordListCacheService>(
       RecordListCacheService,
     );
+    tracklistProvider = module.get<TracklistProvider>(TRACKLIST_PROVIDER);
   });
 
   it('creates a record with the expected mapped fields', async () => {
@@ -520,6 +533,118 @@ describe('RecordService', () => {
 
     expect(result).toEqual(cached);
     expect(recordModel.findOne).not.toHaveBeenCalled();
+  });
+
+  it('queues tracklist fill when record has mbid', async () => {
+    const saveMock = jest.fn().mockResolvedValue(undefined);
+    const record = {
+      _id: 'r1',
+      mbid: 'mbid-1',
+      tracklist: [{ position: 1, title: 'Old Track' }],
+      save: saveMock,
+    } as unknown as Record;
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(record);
+
+    await recordService.requestTracklistFill('r1');
+
+    expect((record as any).tracklist).toEqual([]);
+    expect(saveMock).toHaveBeenCalled();
+    expect(tracklistQueue.add).toHaveBeenCalledWith(
+      FETCH_TRACKLIST_JOB,
+      { recordId: 'r1', externalId: 'mbid-1' },
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: true,
+      },
+    );
+    expect(recordListCacheService.invalidateItem).toHaveBeenCalledWith('r1');
+    expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
+  });
+
+  it('throws BadRequestException on tracklist fill when mbid is missing', async () => {
+    const record = {
+      _id: 'r1',
+      mbid: undefined,
+      tracklist: [],
+      save: jest.fn(),
+    } as unknown as Record;
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(record);
+
+    await expect(
+      recordService.requestTracklistFill('r1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(tracklistQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('fills tracklist synchronously from provider', async () => {
+    const saveMock = jest.fn().mockResolvedValue({
+      _id: 'r1',
+      tracklist: [{ position: 1, title: 'Song A' }],
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+    });
+    const record = {
+      _id: 'r1',
+      mbid: 'mbid-1',
+      tracklist: [],
+      save: saveMock,
+    } as unknown as Record;
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(record);
+    jest
+      .spyOn(tracklistProvider, 'fetchTracklist')
+      .mockResolvedValue([{ position: 1, title: 'Song A' }] as any);
+
+    const result = await recordService.fillTracklistNow('r1');
+
+    expect(tracklistProvider.fetchTracklist).toHaveBeenCalledWith('mbid-1');
+    expect((record as any).tracklist).toEqual([
+      { position: 1, title: 'Song A' },
+    ]);
+    expect(saveMock).toHaveBeenCalled();
+    expect(recordListCacheService.invalidateItem).toHaveBeenCalledWith('r1');
+    expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
+    expect(result).toMatchObject({ _id: 'r1' });
+  });
+
+  it('clears tracklist synchronously when present', async () => {
+    const saveMock = jest.fn().mockResolvedValue({
+      _id: 'r1',
+      tracklist: [],
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+    });
+    const record = {
+      _id: 'r1',
+      tracklist: [{ position: 1, title: 'Song A' }],
+      save: saveMock,
+    } as unknown as Record;
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(record);
+
+    const result = await recordService.clearTracklistNow('r1');
+
+    expect((record as any).tracklist).toEqual([]);
+    expect(saveMock).toHaveBeenCalled();
+    expect(recordListCacheService.invalidateItem).toHaveBeenCalledWith('r1');
+    expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
+    expect(result).toMatchObject({ _id: 'r1' });
+  });
+
+  it('returns current record when clear tracklist called on empty tracklist', async () => {
+    const record = {
+      _id: 'r1',
+      tracklist: [],
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+    } as unknown as Record;
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(record);
+
+    const result = await recordService.clearTracklistNow('r1');
+
+    expect(result).toMatchObject({ _id: 'r1' });
+    expect(recordListCacheService.invalidateItem).not.toHaveBeenCalledWith(
+      'r1',
+    );
   });
 
   it('throws NotFoundException when record not found', async () => {

@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   InternalServerErrorException,
@@ -15,6 +14,7 @@ import { Order } from '../schemas/order.schema';
 import { OrderSource, OrderStatus } from '../schemas/order.enum';
 import { Record } from '../schemas/record.schema';
 import { RecordListCacheService } from './record-list-cache.service';
+import { RecordService } from './record.service';
 
 export interface OrderResponse extends Order {
   created: Date;
@@ -46,6 +46,7 @@ export class OrderService {
     @InjectModel('Order') private readonly orderModel: Model<Order>,
     @InjectModel('Record') private readonly recordModel: Model<Record>,
     private readonly recordListCacheService: RecordListCacheService,
+    private readonly recordService: RecordService,
   ) {}
 
   async create(request: CreateOrderRequestDTO): Promise<OrderResponse> {
@@ -62,33 +63,10 @@ export class OrderService {
       }
     }
 
-    const updatedRecord = await this.recordModel.findOneAndUpdate(
-      {
-        _id: request.recordId,
-        deletedAt: null,
-        qty: { $gte: request.quantity },
-      },
-      {
-        $inc: { qty: -request.quantity },
-      },
-      {
-        new: true,
-      },
+    const updatedRecord = await this.recordService.adjustInventory(
+      String(request.recordId),
+      -request.quantity,
     );
-
-    if (!updatedRecord) {
-      const existingRecord = await this.recordModel
-        .findOne({ _id: request.recordId, deletedAt: null })
-        .exec();
-
-      if (!existingRecord) {
-        throw new NotFoundException('Record not found');
-      }
-
-      throw new BadRequestException(
-        `Insufficient stock. Available: ${existingRecord.qty}, requested: ${request.quantity}`,
-      );
-    }
 
     const unitPrice = updatedRecord.price;
     const totalPrice = unitPrice * request.quantity;
@@ -108,16 +86,12 @@ export class OrderService {
         notes: request.notes,
       });
     } catch {
-      await this.recordModel
-        .updateOne(
-          { _id: request.recordId, deletedAt: null },
-          { $inc: { qty: request.quantity } },
-        )
-        .exec();
+      await this.recordService.adjustInventory(
+        String(request.recordId),
+        request.quantity,
+      );
       throw new InternalServerErrorException('Failed to create order');
     }
-
-    await this.recordListCacheService.invalidateItem(String(request.recordId));
 
     return this.mapTimestamps(createdOrder);
   }
@@ -198,7 +172,46 @@ export class OrderService {
       order.notes = request.notes;
     }
 
+    if (request.quantity !== undefined && request.quantity !== order.quantity) {
+      return this.updateQuantity(id, request.quantity);
+    }
+
     const updatedOrder = await order.save();
+    return this.mapTimestamps(updatedOrder);
+  }
+
+  async updateQuantity(
+    id: string,
+    newQuantity: number,
+  ): Promise<OrderResponse> {
+    const order = await this.orderModel.findById(id).exec();
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (!MUTABLE_STATUSES.includes(order.status)) {
+      throw new ConflictException(
+        'Order cannot be changed from its current status',
+      );
+    }
+
+    if (newQuantity === order.quantity) {
+      return this.mapTimestamps(order);
+    }
+
+    const quantityDelta = newQuantity - order.quantity;
+
+    const updatedRecord = await this.recordService.adjustInventory(
+      String(order.recordId),
+      -quantityDelta,
+    );
+
+    order.quantity = newQuantity;
+    order.unitPrice = updatedRecord.price;
+    order.totalPrice = order.unitPrice * order.quantity;
+
+    const updatedOrder = await order.save();
+
     return this.mapTimestamps(updatedOrder);
   }
 
@@ -219,30 +232,15 @@ export class OrderService {
       throw new ConflictException('Fulfilled orders cannot be canceled');
     }
 
-    const restockResult = await this.recordModel
-      .updateOne(
-        {
-          _id: order.recordId,
-          deletedAt: null,
-        },
-        {
-          $inc: { qty: order.quantity },
-        },
-      )
-      .exec();
-
-    if (restockResult.modifiedCount !== 1) {
-      throw new BadRequestException(
-        'Associated record not available for restock',
-      );
-    }
+    await this.recordService.adjustInventory(
+      String(order.recordId),
+      order.quantity,
+    );
 
     order.status = OrderStatus.CANCELED;
     order.cancelReason = request.reason;
 
     const canceledOrder = await order.save();
-
-    await this.recordListCacheService.invalidateItem(String(order.recordId));
 
     return this.mapTimestamps(canceledOrder);
   }

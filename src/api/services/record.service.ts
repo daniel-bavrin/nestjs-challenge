@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -16,6 +18,11 @@ import {
   TRACKLIST_QUEUE,
 } from '../jobs/tracklist-queue.constants';
 import { RecordListCacheService } from './record-list-cache.service';
+import {
+  TRACKLIST_PROVIDER,
+  TracklistProvider,
+} from '../interfaces/tracklist-provider.interface';
+import { Track } from '../schemas/record.schema';
 
 export interface PaginatedRecordsMeta {
   total: number;
@@ -49,6 +56,8 @@ export class RecordService {
     @InjectModel('Record') private readonly recordModel: Model<Record>,
     @InjectQueue(TRACKLIST_QUEUE) private readonly tracklistQueue: Queue,
     private readonly recordListCacheService: RecordListCacheService,
+    @Inject(TRACKLIST_PROVIDER)
+    private readonly tracklistProvider: TracklistProvider,
   ) {}
 
   async create(request: CreateRecordRequestDTO): Promise<RecordResponse> {
@@ -234,6 +243,83 @@ export class RecordService {
     return response;
   }
 
+  async requestTracklistFill(id: string): Promise<void> {
+    const record = await this.recordModel.findOne({
+      _id: id,
+      deletedAt: null,
+    });
+    if (!record) {
+      throw new NotFoundException('Record not found');
+    }
+
+    const mbid = record.mbid?.trim();
+    if (!mbid) {
+      throw new BadRequestException('Record has no mbid to fetch tracklist');
+    }
+
+    record.tracklist = [];
+    await record.save();
+
+    await this.enqueueTracklistFetch(String(record._id), mbid);
+
+    await Promise.all([
+      this.recordListCacheService.invalidateItem(id),
+      this.recordListCacheService.invalidateAll(),
+    ]);
+  }
+
+  async fillTracklistNow(id: string): Promise<RecordResponse> {
+    const record = await this.recordModel.findOne({
+      _id: id,
+      deletedAt: null,
+    });
+    if (!record) {
+      throw new NotFoundException('Record not found');
+    }
+
+    const mbid = record.mbid?.trim();
+    if (!mbid) {
+      throw new BadRequestException('Record has no mbid to fetch tracklist');
+    }
+
+    const tracklist: Track[] =
+      await this.tracklistProvider.fetchTracklist(mbid);
+    record.tracklist = tracklist;
+
+    const updatedRecord = await record.save();
+
+    await Promise.all([
+      this.recordListCacheService.invalidateItem(id),
+      this.recordListCacheService.invalidateAll(),
+    ]);
+
+    return this.mapTimestamps(updatedRecord);
+  }
+
+  async clearTracklistNow(id: string): Promise<RecordResponse> {
+    const record = await this.recordModel.findOne({
+      _id: id,
+      deletedAt: null,
+    });
+    if (!record) {
+      throw new NotFoundException('Record not found');
+    }
+
+    if (Array.isArray(record.tracklist) && record.tracklist.length === 0) {
+      return this.mapTimestamps(record);
+    }
+
+    record.tracklist = [];
+    const updatedRecord = await record.save();
+
+    await Promise.all([
+      this.recordListCacheService.invalidateItem(id),
+      this.recordListCacheService.invalidateAll(),
+    ]);
+
+    return this.mapTimestamps(updatedRecord);
+  }
+
   async softDeleteV0(id: string): Promise<void> {
     return this.softDelete(id);
   }
@@ -267,6 +353,70 @@ export class RecordService {
     }
 
     return filter;
+  }
+
+  /**
+   * Adjust inventory for an order operation (atomic).
+   * Delta: negative = debit (reserve), positive = credit (restock)
+   * For debits: validates sufficient inventory exists before applying change.
+   * @throws NotFoundException if record not found or deleted
+   * @throws BadRequestException if insufficient inventory for debit
+   */
+  async adjustInventory(
+    recordId: string,
+    delta: number,
+  ): Promise<RecordResponse> {
+    if (delta === 0) {
+      return this.findOne(recordId);
+    }
+
+    if (delta < 0) {
+      const currentQty = await this.recordModel
+        .findOne(
+          {
+            _id: recordId,
+            deletedAt: null,
+            qty: { $gte: Math.abs(delta) },
+          },
+          { qty: 1 },
+        )
+        .exec();
+
+      if (!currentQty) {
+        const record = await this.recordModel
+          .findOne({ _id: recordId, deletedAt: null }, { qty: 1 })
+          .exec();
+
+        if (!record) {
+          throw new NotFoundException('Record not found');
+        }
+
+        throw new BadRequestException(
+          `Insufficient stock. Available: ${record.qty}, requested: ${Math.abs(delta)}`,
+        );
+      }
+    }
+
+    const updatedRecord = await this.recordModel
+      .findOneAndUpdate(
+        {
+          _id: recordId,
+          deletedAt: null,
+        },
+        {
+          $inc: { qty: delta },
+        },
+        { new: true },
+      )
+      .exec();
+
+    if (!updatedRecord) {
+      throw new NotFoundException('Record not found');
+    }
+
+    await this.recordListCacheService.invalidateItem(String(recordId));
+
+    return this.mapTimestamps(updatedRecord);
   }
 
   private buildRegex(value: string): RegExp {
