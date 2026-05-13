@@ -15,6 +15,7 @@ import {
   FETCH_TRACKLIST_JOB,
   TRACKLIST_QUEUE,
 } from '../jobs/tracklist-queue.constants';
+import { RecordListCacheService } from './record-list-cache.service';
 
 export interface PaginatedRecordsMeta {
   total: number;
@@ -47,6 +48,7 @@ export class RecordService {
   constructor(
     @InjectModel('Record') private readonly recordModel: Model<Record>,
     @InjectQueue(TRACKLIST_QUEUE) private readonly tracklistQueue: Queue,
+    private readonly recordListCacheService: RecordListCacheService,
   ) {}
 
   async create(request: CreateRecordRequestDTO): Promise<RecordResponse> {
@@ -64,6 +66,8 @@ export class RecordService {
     if (request.mbid) {
       await this.enqueueTracklistFetch(String(createdRecord._id), request.mbid);
     }
+
+    await this.recordListCacheService.invalidateAll();
 
     return this.mapTimestamps(createdRecord);
   }
@@ -83,6 +87,10 @@ export class RecordService {
     }
     record.deletedAt = new Date();
     await record.save();
+    await Promise.all([
+      this.recordListCacheService.invalidateItem(id),
+      this.recordListCacheService.invalidateAll(),
+    ]);
   }
 
   async update(
@@ -124,6 +132,11 @@ export class RecordService {
         }
       }
 
+      await Promise.all([
+        this.recordListCacheService.invalidateItem(id),
+        this.recordListCacheService.invalidateAll(),
+      ]);
+
       return this.mapTimestamps(updatedRecord);
     } catch {
       throw new InternalServerErrorException('Failed to update record');
@@ -139,6 +152,17 @@ export class RecordService {
   }
 
   async findAll(query: FindRecordsQueryDTO): Promise<PaginatedRecordsResponse> {
+    const cacheQuery = this.buildV1CacheQuery(query);
+    const cached =
+      await this.recordListCacheService.get<PaginatedRecordsResponse>(
+        'v1',
+        cacheQuery,
+      );
+
+    if (cached) {
+      return cached;
+    }
+
     const filter = this.buildFilter(query);
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
@@ -152,7 +176,7 @@ export class RecordService {
 
     const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
 
-    return {
+    const response = {
       items: items.map((item) => this.mapTimestamps(item)),
       meta: {
         total,
@@ -163,13 +187,51 @@ export class RecordService {
         hasPrevPage: page > 1,
       },
     };
+
+    await this.recordListCacheService.set('v1', cacheQuery, response);
+
+    return response;
   }
 
   async findAllV0(query: RecordFilterFields): Promise<RecordResponseV0[]> {
+    const cached = await this.recordListCacheService.get<RecordResponseV0[]>(
+      'v0',
+      query,
+    );
+
+    if (cached) {
+      return cached;
+    }
+
     const filter = this.buildFilter(query);
     const items = await this.recordModel.find(filter).exec();
+    const response = items.map((item) =>
+      this.removeTracklist(this.mapTimestamps(item)),
+    );
 
-    return items.map((item) => this.removeTracklist(this.mapTimestamps(item)));
+    await this.recordListCacheService.set('v0', query, response);
+
+    return response;
+  }
+
+  async findOne(id: string): Promise<RecordResponse> {
+    const cached =
+      await this.recordListCacheService.getItem<RecordResponse>(id);
+    if (cached) {
+      return cached;
+    }
+
+    const record = await this.recordModel.findOne({
+      _id: id,
+      deletedAt: null,
+    });
+    if (!record) {
+      throw new NotFoundException('Record not found');
+    }
+
+    const response = this.mapTimestamps(record);
+    await this.recordListCacheService.setItem(id, response);
+    return response;
   }
 
   async softDeleteV0(id: string): Promise<void> {
@@ -228,6 +290,21 @@ export class RecordService {
           : rawField;
 
     return descending ? `-${normalizedField}` : normalizedField;
+  }
+
+  private buildV1CacheQuery(query: FindRecordsQueryDTO): {
+    [key: string]: unknown;
+  } {
+    return {
+      q: query.q,
+      artist: query.artist,
+      album: query.album,
+      format: query.format,
+      category: query.category,
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+      sort: this.resolveSortField(query.sort),
+    };
   }
 
   private mapTimestamps(record: Record): RecordResponse {

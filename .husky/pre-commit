@@ -1,1 +1,9 @@
-npm run lint && npm run test
+npm run lint
+
+if ! git diff --quiet --exit-code; then
+	echo "Pre-commit aborted: lint --fix modified files."
+	echo "Review and stage the changes, then commit again."
+	exit 1
+fi
+
+npm run test

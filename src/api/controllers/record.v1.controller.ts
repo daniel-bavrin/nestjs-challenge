@@ -50,6 +50,14 @@ export class RecordV1Controller {
     return this.recordService.softDelete(id);
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Get a single record by ID' })
+  @ApiResponse({ status: 200, description: 'Record found' })
+  @ApiResponse({ status: 404, description: 'Record not found' })
+  async findOne(@Param('id') id: string): Promise<RecordResponse> {
+    return this.recordService.findOne(id);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get all records with optional filters' })
   @ApiResponse({
