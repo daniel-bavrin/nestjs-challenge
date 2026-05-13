@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   InternalServerErrorException,
@@ -42,7 +43,16 @@ export type RecordResponseV0 = Omit<RecordResponse, 'tracklist'>;
 
 type RecordFilterFields = Pick<
   FindRecordsQueryDTO,
-  'q' | 'artist' | 'album' | 'format' | 'category'
+  | 'q'
+  | 'artist'
+  | 'album'
+  | 'format'
+  | 'category'
+  | 'mbid'
+  | 'priceMin'
+  | 'priceMax'
+  | 'qtyMin'
+  | 'qtyMax'
 >;
 
 const RECORD_SORT_FIELDS: { [key: string]: string } = {
@@ -50,6 +60,9 @@ const RECORD_SORT_FIELDS: { [key: string]: string } = {
   album: 'album',
   category: 'category',
   format: 'format',
+  mbid: 'mbid',
+  price: 'price',
+  qty: 'qty',
   created: 'createdAt',
   createdAt: 'createdAt',
   lastModified: 'updatedAt',
@@ -72,16 +85,23 @@ export class RecordService {
   ) {}
 
   async create(request: CreateRecordRequestDTO): Promise<RecordResponse> {
-    const createdRecord = await this.recordModel.create({
-      artist: request.artist,
-      album: request.album,
-      price: request.price,
-      qty: request.qty,
-      format: request.format,
-      category: request.category,
-      mbid: request.mbid,
-      tracklist: [],
-    });
+    let createdRecord: Record;
+
+    try {
+      createdRecord = await this.recordModel.create({
+        artist: request.artist,
+        album: request.album,
+        price: request.price,
+        qty: request.qty,
+        format: request.format,
+        category: request.category,
+        mbid: request.mbid,
+        tracklist: [],
+      });
+    } catch (error) {
+      this.throwIfDuplicateRecord(error);
+      throw error;
+    }
 
     if (request.mbid) {
       await this.enqueueTracklistFetch(String(createdRecord._id), request.mbid);
@@ -166,7 +186,8 @@ export class RecordService {
       ]);
 
       return this.mapTimestamps(updatedRecord);
-    } catch {
+    } catch (error) {
+      this.throwIfDuplicateRecord(error);
       throw new InternalServerErrorException('Failed to update record');
     }
   }
@@ -352,6 +373,9 @@ export class RecordService {
         { artist: qRegex },
         { album: qRegex },
         { category: qRegex },
+        { format: qRegex },
+        { mbid: qRegex },
+        { 'tracklist.title': qRegex },
       ];
     }
 
@@ -369,6 +393,30 @@ export class RecordService {
 
     if (query.category) {
       filter.category = query.category;
+    }
+
+    if (query.mbid !== undefined) {
+      filter.mbid = query.mbid;
+    }
+
+    if (query.priceMin !== undefined || query.priceMax !== undefined) {
+      filter.price = {};
+      if (query.priceMin !== undefined) {
+        filter.price.$gte = query.priceMin;
+      }
+      if (query.priceMax !== undefined) {
+        filter.price.$lte = query.priceMax;
+      }
+    }
+
+    if (query.qtyMin !== undefined || query.qtyMax !== undefined) {
+      filter.qty = {};
+      if (query.qtyMin !== undefined) {
+        filter.qty.$gte = query.qtyMin;
+      }
+      if (query.qtyMax !== undefined) {
+        filter.qty.$lte = query.qtyMax;
+      }
     }
 
     return filter;
@@ -450,6 +498,19 @@ export class RecordService {
     return new RegExp(escaped, 'i');
   }
 
+  private throwIfDuplicateRecord(error: unknown): never | void {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 11000
+    ) {
+      throw new ConflictException(
+        'Record already exists for artist, album, and format',
+      );
+    }
+  }
+
   private resolveSortField(sort?: string): string {
     if (!sort) {
       return '-createdAt';
@@ -475,6 +536,11 @@ export class RecordService {
       album: query.album,
       format: query.format,
       category: query.category,
+      mbid: query.mbid,
+      priceMin: query.priceMin,
+      priceMax: query.priceMax,
+      qtyMin: query.qtyMin,
+      qtyMax: query.qtyMax,
       page: query.page ?? 1,
       limit: query.limit ?? 20,
       sort: this.resolveSortField(query.sort),

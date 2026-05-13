@@ -8,6 +8,7 @@ import { CreateRecordRequestDTO } from '../dtos/create-record.request.dto';
 import { RecordCategory, RecordFormat } from '../schemas/record.enum';
 import {
   BadRequestException,
+  ConflictException,
   NotFoundException,
   InternalServerErrorException,
 } from '@nestjs/common';
@@ -150,6 +151,34 @@ describe('RecordService', () => {
     expect(recordListCacheService.invalidateAll).toHaveBeenCalled();
   });
 
+  it('throws ConflictException when creating a duplicate artist album format record', async () => {
+    const request: CreateRecordRequestDTO = {
+      artist: 'Sisters of Mercy',
+      album: 'First and Last and Always',
+      price: 20,
+      qty: 3,
+      format: RecordFormat.VINYL,
+      category: RecordCategory.ALTERNATIVE,
+      mbid: '',
+    };
+
+    jest.spyOn(recordModel, 'create').mockRejectedValue({
+      code: 11000,
+      keyPattern: { artist: 1, album: 1, format: 1 },
+      keyValue: {
+        artist: request.artist,
+        album: request.album,
+        format: request.format,
+      },
+    });
+
+    await expect(recordService.create(request)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(tracklistQueue.add).not.toHaveBeenCalled();
+    expect(recordListCacheService.invalidateAll).not.toHaveBeenCalled();
+  });
+
   it('updates an existing record', async () => {
     const savedRecord = {
       mbid: 'old-mbid',
@@ -259,6 +288,24 @@ describe('RecordService', () => {
     );
   });
 
+  it('throws ConflictException when updating into a duplicate artist album format record', async () => {
+    const savedRecord = {
+      save: jest.fn().mockRejectedValue({
+        code: 11000,
+        keyPattern: { artist: 1, album: 1, format: 1 },
+      }),
+    } as unknown as Record;
+    jest.spyOn(recordModel, 'findOne').mockResolvedValue(savedRecord);
+
+    await expect(
+      recordService.update('1', {
+        artist: 'Sisters of Mercy',
+        album: 'First and Last and Always',
+        format: RecordFormat.VINYL,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
   it('filters records using search and field filters', async () => {
     const records = [
       {
@@ -299,25 +346,40 @@ describe('RecordService', () => {
     query.album = 'Road';
     query.format = RecordFormat.VINYL;
     query.category = RecordCategory.ROCK;
+    query.mbid = 'b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d';
+    query.priceMin = 10;
+    query.priceMax = 30;
+    query.qtyMin = 1;
+    query.qtyMax = 20;
     query.page = 2;
     query.limit = 10;
-    query.sort = 'artist';
+    query.sort = '-price';
 
     const result = await recordService.findAll(query);
     const expectedFilter = {
       deletedAt: null,
-      $or: [{ artist: /Abbey/i }, { album: /Abbey/i }, { category: /Abbey/i }],
+      $or: [
+        { artist: /Abbey/i },
+        { album: /Abbey/i },
+        { category: /Abbey/i },
+        { format: /Abbey/i },
+        { mbid: /Abbey/i },
+        { 'tracklist.title': /Abbey/i },
+      ],
       artist: /Beatles/i,
       album: /Road/i,
       format: RecordFormat.VINYL,
       category: RecordCategory.ROCK,
+      mbid: 'b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d',
+      price: { $gte: 10, $lte: 30 },
+      qty: { $gte: 1, $lte: 20 },
     };
 
     expect(recordModel.find).toHaveBeenCalledWith(
       expect.objectContaining(expectedFilter),
     );
     expect(countDocumentsSpy).toHaveBeenCalledWith(expectedFilter);
-    expect(findChain.sort).toHaveBeenCalledWith('artist');
+    expect(findChain.sort).toHaveBeenCalledWith('-price');
     expect(findChain.skip).toHaveBeenCalledWith(10);
     expect(findChain.limit).toHaveBeenCalledWith(10);
     expect(result).toEqual({
@@ -343,9 +405,14 @@ describe('RecordService', () => {
         album: 'Road',
         format: RecordFormat.VINYL,
         category: RecordCategory.ROCK,
+        mbid: 'b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d',
+        priceMin: 10,
+        priceMax: 30,
+        qtyMin: 1,
+        qtyMax: 20,
         page: 2,
         limit: 10,
-        sort: 'artist',
+        sort: '-price',
       },
       result,
     );
@@ -715,6 +782,9 @@ describe('RecordService', () => {
     expect(filterArg.$or[0].artist).toEqual(/A\.\*\(B\)\+\?/i);
     expect(filterArg.$or[1].album).toEqual(/A\.\*\(B\)\+\?/i);
     expect(filterArg.$or[2].category).toEqual(/A\.\*\(B\)\+\?/i);
+    expect(filterArg.$or[3].format).toEqual(/A\.\*\(B\)\+\?/i);
+    expect(filterArg.$or[4].mbid).toEqual(/A\.\*\(B\)\+\?/i);
+    expect(filterArg.$or[5]['tracklist.title']).toEqual(/A\.\*\(B\)\+\?/i);
   });
 
   it('maps created sort field to createdAt', async () => {

@@ -1,4 +1,5 @@
 # Record Store Challenge API
+
 ## Description
 
 This is a **NestJS** application with MongoDB integration, async job queue (BullMQ), and migrations. This setup includes end-to-end tests, unit tests, test coverage, linting, and database setup with data from `data.json`.
@@ -18,7 +19,7 @@ Then start the app:
 $ npm run start:dev
 ```
 
-The API will be running at `http://localhost:3000` with documentation at `http://localhost:3000/api`.
+The API will be running at `http://localhost:3000` with Swagger documentation at `http://localhost:3000/swagger`.
 
 ---
 
@@ -49,6 +50,7 @@ $ npm run infra:start
 ```
 
 Services will be available at:
+
 - **MongoDB**: `mongodb://localhost:27017`
 - **Redis**: `localhost:6379`
 
@@ -60,7 +62,7 @@ $ npm run infra:stop
 
 ### 4. Run Database Migrations
 
-Apply all pending schema migrations:
+Apply all pending schema migrations before starting the application:
 
 ```bash
 $ npm run migrate:up
@@ -96,7 +98,6 @@ $ npm run seed:data
 
 This will prompt whether to clear existing records before importing.
 
-
 ---
 
 ## Running the Application
@@ -108,6 +109,8 @@ $ npm run start:dev
 ```
 
 The server will start at `http://localhost:3000` with live reload enabled.
+
+Swagger is available at `http://localhost:3000/swagger`, and the raw OpenAPI JSON is available at `http://localhost:3000/swagger-json`.
 
 ### Production Mode
 
@@ -184,6 +187,32 @@ $ npm run typecheck:test
 
 ---
 
+## API Notes
+
+### Records
+
+The v1 records API is available under `/v1/records`.
+
+Supported list filters:
+
+- `q` searches artist, album, category, format, MBID, and track titles.
+- `artist`, `album`, `category`, `format`, and `mbid` filter specific fields.
+- `priceMin` / `priceMax` filter by price range.
+- `qtyMin` / `qtyMax` filter by stock range.
+- `page` and `limit` control pagination.
+
+Supported sort fields are `artist`, `album`, `category`, `format`, `mbid`, `price`, `qty`, `created`, `createdAt`, `lastModified`, and `updatedAt`. Prefix with `-` for descending order, for example `sort=-price`.
+
+Records are uniquely identified by the combination of `artist`, `album`, and `format`. Creating a duplicate returns a conflict response.
+
+When creating or updating a record with a non-empty MBID, a BullMQ job fetches tracklist data from MusicBrainz asynchronously. Sending `mbid: ""` stores an empty MBID and clears the existing tracklist.
+
+### Orders
+
+The v1 orders API is available under `/v1/orders`. Order creation and mutable order updates run inside MongoDB transactions so inventory changes and order writes commit or roll back together.
+
+---
+
 ## Project Structure
 
 ### TypeScript Configuration
@@ -210,13 +239,11 @@ This project uses **BullMQ** with **Redis** for async job processing:
 
 - When a record is created/updated with a MusicBrainz ID (mbid), a tracklist fetch job is enqueued
 - The API responds immediately with an empty tracklist
-- Jobs are processed asynchronously in the background with 3 retries and exponential backoff
+- Jobs are processed asynchronously in the background with 3 retries, exponential backoff, and a bounded tracklist job timeout
 - Once a job completes successfully, the record's tracklist is updated in the database
 
 Failed jobs are retained in the queue for inspection and debugging.
 
 ### Database Migrations
 
-Versioned migrations are applied automatically when the app starts. New migrations can be created and are tracked in MongoDB's `migrations_changelog` collection.
-This command will show you any linting issues with your code.
-
+Versioned migrations are managed with `migrate-mongo` and must be run with `npm run migrate:up`. New migrations can be created with `npm run migrate:create -- your-migration-name`, and applied migration state is tracked in MongoDB's `migrations_changelog` collection.

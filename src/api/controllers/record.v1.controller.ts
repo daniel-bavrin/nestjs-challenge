@@ -25,6 +25,7 @@ export class RecordV1Controller {
   @ApiOperation({ summary: 'Create a new record' })
   @ApiResponse({ status: 201, description: 'Record successfully created' })
   @ApiResponse({ status: 400, description: 'Bad Request' })
+  @ApiResponse({ status: 409, description: 'Duplicate artist/album/format' })
   async create(
     @Body() request: CreateRecordRequestDTO,
   ): Promise<RecordResponse> {
@@ -34,6 +35,7 @@ export class RecordV1Controller {
   @Put(':id')
   @ApiOperation({ summary: 'Update an existing record' })
   @ApiResponse({ status: 200, description: 'Record updated successfully' })
+  @ApiResponse({ status: 409, description: 'Duplicate artist/album/format' })
   @ApiResponse({ status: 500, description: 'Cannot find record to update' })
   async update(
     @Param('id') id: string,
@@ -116,6 +118,36 @@ export class RecordV1Controller {
     description: 'Filter by record category (e.g., Rock, Jazz)',
     enum: RecordCategory,
     type: String,
+  })
+  @ApiQuery({
+    name: 'mbid',
+    required: false,
+    description: 'Filter by MusicBrainz identifier',
+    type: String,
+  })
+  @ApiQuery({
+    name: 'priceMin',
+    required: false,
+    description: 'Minimum record price',
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'priceMax',
+    required: false,
+    description: 'Maximum record price',
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'qtyMin',
+    required: false,
+    description: 'Minimum quantity in stock',
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'qtyMax',
+    required: false,
+    description: 'Maximum quantity in stock',
+    type: Number,
   })
   @ApiQuery({
     name: 'page',

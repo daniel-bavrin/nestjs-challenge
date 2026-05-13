@@ -1,6 +1,14 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import { RecordCategory, RecordFormat } from '../schemas/record.enum';
 
 export class FindRecordsQueryDTO {
@@ -46,7 +54,59 @@ export class FindRecordsQueryDTO {
   category?: RecordCategory;
 
   @ApiPropertyOptional({
-    description: 'Page number (reserved for paginated response in next phase)',
+    description: 'Filter by MusicBrainz identifier',
+    type: String,
+  })
+  @IsOptional()
+  @IsString()
+  mbid?: string;
+
+  @ApiPropertyOptional({
+    description: 'Minimum record price',
+    type: Number,
+    minimum: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  priceMin?: number;
+
+  @ApiPropertyOptional({
+    description: 'Maximum record price',
+    type: Number,
+    minimum: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  priceMax?: number;
+
+  @ApiPropertyOptional({
+    description: 'Minimum quantity in stock',
+    type: Number,
+    minimum: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  qtyMin?: number;
+
+  @ApiPropertyOptional({
+    description: 'Maximum quantity in stock',
+    type: Number,
+    minimum: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  qtyMax?: number;
+
+  @ApiPropertyOptional({
+    description: 'Page number',
     default: 1,
     minimum: 1,
   })
@@ -57,7 +117,7 @@ export class FindRecordsQueryDTO {
   page = 1;
 
   @ApiPropertyOptional({
-    description: 'Page size (reserved for paginated response in next phase)',
+    description: 'Page size',
     default: 20,
     minimum: 1,
     maximum: 100,
@@ -70,8 +130,9 @@ export class FindRecordsQueryDTO {
   limit = 20;
 
   @ApiPropertyOptional({
-    description: 'Sort field (reserved for next phase)',
-    example: 'createdAt',
+    description:
+      'Sort field, prefix with - for descending. Allowed: artist,album,category,format,mbid,price,qty,created,createdAt,lastModified,updatedAt',
+    example: '-createdAt',
   })
   @IsOptional()
   @IsString()

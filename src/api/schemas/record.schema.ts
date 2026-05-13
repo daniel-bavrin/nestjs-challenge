@@ -62,8 +62,21 @@ RecordSchema.index(
     partialFilterExpression: { deletedAt: null },
   },
 );
-RecordSchema.index({ artist: 1 });
-RecordSchema.index({ album: 1 });
-RecordSchema.index({ category: 1 });
-RecordSchema.index({ format: 1 });
-RecordSchema.index({ mbid: 1 });
+RecordSchema.index({ artist: 1 }, { name: 'artist_1' });
+RecordSchema.index({ album: 1 }, { name: 'album_1' });
+RecordSchema.index({ category: 1 }, { name: 'category_1' });
+RecordSchema.index({ format: 1 }, { name: 'format_1' });
+RecordSchema.index({ mbid: 1 }, { name: 'mbid_1' });
+RecordSchema.index({ price: 1 }, { name: 'price_1' });
+RecordSchema.index({ qty: 1 }, { name: 'qty_1' });
+RecordSchema.index({ createdAt: -1 }, { name: 'createdAt_-1' });
+RecordSchema.index({ updatedAt: -1 }, { name: 'updatedAt_-1' });
+RecordSchema.index({ 'tracklist.title': 1 }, { name: 'tracklist.title_1' });
+RecordSchema.index(
+  { deletedAt: 1, createdAt: -1 },
+  { name: 'deletedAt_1_createdAt_-1' },
+);
+RecordSchema.index(
+  { deletedAt: 1, category: 1, format: 1, createdAt: -1 },
+  { name: 'deletedAt_1_category_1_format_1_createdAt_-1' },
+);
