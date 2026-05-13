@@ -50,6 +50,25 @@ export class RecordV1Controller {
     return this.recordService.softDelete(id);
   }
 
+  @Post(':id/fill-tracklist')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Fetch and store tracklist for a record now' })
+  @ApiResponse({ status: 200, description: 'Tracklist refreshed and stored' })
+  @ApiResponse({ status: 400, description: 'Record has no mbid' })
+  @ApiResponse({ status: 404, description: 'Record not found' })
+  async fillTracklist(@Param('id') id: string): Promise<RecordResponse> {
+    return this.recordService.fillTracklistNow(id);
+  }
+
+  @Post(':id/clear-tracklist')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Clear stored tracklist for a record' })
+  @ApiResponse({ status: 200, description: 'Tracklist cleared' })
+  @ApiResponse({ status: 404, description: 'Record not found' })
+  async clearTracklist(@Param('id') id: string): Promise<RecordResponse> {
+    return this.recordService.clearTracklistNow(id);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a single record by ID' })
   @ApiResponse({ status: 200, description: 'Record found' })

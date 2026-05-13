@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Broken Record Store Admin</title>
+  <link rel="stylesheet" href="./styles/admin.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <h1>Broken Record Store Admin</h1>
+      <p>Records and orders management</p>
+    </div>
+
+    <div class="tabs">
+      <button id="tabRecords" class="tab active">Records</button>
+      <button id="tabOrders" class="tab">Orders</button>
+    </div>
+
+    <section id="recordsPanel" class="panel">
+      <div class="row">
+        <input id="recordSearch" class="grow" placeholder="Search records (artist, album, category)">
+        <button class="btn" id="recordSearchBtn">Search</button>
+        <button class="btn" id="recordClearBtn">Clear</button>
+        <button class="btn primary" id="newRecordBtn">New Record</button>
+      </div>
+
+      <form id="recordForm" class="hidden">
+        <div id="recordFields" class="form"></div>
+        <div class="row">
+          <button class="btn" type="button" id="fillTracklistBtn">Fill Tracklist</button>
+          <button class="btn danger" type="button" id="clearTracklistBtn">Clear Tracklist</button>
+          <button class="btn primary" type="submit">Save Record</button>
+          <button class="btn" type="button" id="cancelRecordBtn">Cancel</button>
+        </div>
+        <div id="recordTracklistBox" class="tracklist-box hidden"></div>
+      </form>
+
+      <div id="recordsTableWrap"></div>
+    </section>
+
+    <section id="ordersPanel" class="panel hidden">
+      <div class="row">
+        <select id="orderStatus" class="grow"></select>
+        <button class="btn" id="orderClearBtn">Clear</button>
+        <button class="btn primary" id="newOrderBtn">New Order</button>
+      </div>
+
+      <form id="orderForm" class="hidden">
+        <div id="orderFields" class="form"></div>
+        <div class="row">
+          <button class="btn primary" type="submit">Create Order</button>
+          <button class="btn" type="button" id="cancelOrderBtn">Cancel</button>
+        </div>
+      </form>
+
+      <div id="ordersTableWrap"></div>
+    </section>
+
+    <!-- Order Edit Modal -->
+    <div id="orderEditModal" class="modal hidden">
+      <div class="modal-card">
+        <h3>Edit Order</h3>
+        <form id="orderEditForm" class="modal-form">
+          <div class="field">
+            <label>Quantity <span class="req">*</span></label>
+            <input type="number" id="editOrderQty" name="quantity" min="1" required>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn" id="cancelOrderEditBtn">Cancel</button>
+            <button type="submit" class="btn primary">Update Quantity</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <script type="module" src="./js/main.js"></script>
+</body>
+</html>

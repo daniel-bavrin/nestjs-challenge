@@ -15,12 +15,14 @@ import { Order } from '../schemas/order.schema';
 import { Record } from '../schemas/record.schema';
 import { OrderService } from './order.service';
 import { RecordListCacheService } from './record-list-cache.service';
+import { RecordService } from './record.service';
 
 describe('OrderService', () => {
   let orderService: OrderService;
   let orderModel: Model<Order>;
   let recordModel: Model<Record>;
   let recordListCacheService: RecordListCacheService;
+  let recordService: RecordService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -50,6 +52,12 @@ describe('OrderService', () => {
             invalidateItem: jest.fn().mockResolvedValue(undefined),
           },
         },
+        {
+          provide: RecordService,
+          useValue: {
+            adjustInventory: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -59,6 +67,7 @@ describe('OrderService', () => {
     recordListCacheService = module.get<RecordListCacheService>(
       RecordListCacheService,
     );
+    recordService = module.get<RecordService>(RecordService);
   });
 
   it('creates an order and atomically decrements stock when quantity is available', async () => {
@@ -72,11 +81,17 @@ describe('OrderService', () => {
       exec: jest.fn().mockResolvedValue(null),
     } as any);
 
-    jest.spyOn(recordModel, 'findOneAndUpdate').mockResolvedValue({
+    const recordResponse = {
       _id: request.recordId,
       price: 30,
       qty: 8,
-    } as unknown as Record);
+      created: new Date('2026-01-01T00:00:00.000Z'),
+      lastModified: new Date('2026-01-01T00:00:00.000Z'),
+    } as any;
+
+    jest
+      .spyOn(recordService, 'adjustInventory')
+      .mockResolvedValue(recordResponse);
 
     jest.spyOn(orderModel as any, 'create').mockResolvedValue({
       _id: 'o1',
@@ -92,18 +107,9 @@ describe('OrderService', () => {
 
     const result = await orderService.create(request);
 
-    expect(recordModel.findOneAndUpdate).toHaveBeenCalledWith(
-      {
-        _id: request.recordId,
-        deletedAt: null,
-        qty: { $gte: request.quantity },
-      },
-      {
-        $inc: { qty: -request.quantity },
-      },
-      {
-        new: true,
-      },
+    expect(recordService.adjustInventory).toHaveBeenCalledWith(
+      request.recordId,
+      -request.quantity,
     );
     expect(orderModel.create).toHaveBeenCalledWith({
       recordId: request.recordId,
@@ -124,9 +130,6 @@ describe('OrderService', () => {
     });
     expect(result).toHaveProperty('created');
     expect(result).toHaveProperty('lastModified');
-    expect(recordListCacheService.invalidateItem).toHaveBeenCalledWith(
-      request.recordId,
-    );
   });
 
   it('returns existing order for duplicated source+externalOrderId request', async () => {
@@ -159,10 +162,10 @@ describe('OrderService', () => {
     jest.spyOn(orderModel, 'findOne').mockReturnValue({
       exec: jest.fn().mockResolvedValue(null),
     } as any);
-    jest.spyOn(recordModel, 'findOneAndUpdate').mockResolvedValue(null);
-    jest.spyOn(recordModel, 'findOne').mockReturnValue({
-      exec: jest.fn().mockResolvedValue(null),
-    } as any);
+
+    jest
+      .spyOn(recordService, 'adjustInventory')
+      .mockRejectedValue(new NotFoundException('Record not found'));
 
     await expect(
       orderService.create({
@@ -176,10 +179,14 @@ describe('OrderService', () => {
     jest.spyOn(orderModel, 'findOne').mockReturnValue({
       exec: jest.fn().mockResolvedValue(null),
     } as any);
-    jest.spyOn(recordModel, 'findOneAndUpdate').mockResolvedValue(null);
-    jest.spyOn(recordModel, 'findOne').mockReturnValue({
-      exec: jest.fn().mockResolvedValue({ qty: 1 }),
-    } as any);
+
+    jest
+      .spyOn(recordService, 'adjustInventory')
+      .mockRejectedValue(
+        new BadRequestException(
+          'Insufficient stock. Available: 1, requested: 2',
+        ),
+      );
 
     await expect(
       orderService.create({
@@ -192,7 +199,7 @@ describe('OrderService', () => {
         recordId: '6821b4fd25b68ab63ec4f9a5',
         quantity: 2,
       }),
-    ).rejects.toThrow('Insufficient stock. Available: 1, requested: 2');
+    ).rejects.toThrow('Insufficient stock');
   });
 
   it('returns paginated orders', async () => {
@@ -320,20 +327,25 @@ describe('OrderService', () => {
       }),
     } as any);
 
-    jest.spyOn(recordModel, 'updateOne').mockReturnValue({
-      exec: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
-    } as any);
+    const restockedRecord = {
+      _id: 'r1',
+      qty: 12,
+      price: 30,
+      created: new Date('2026-01-01T00:00:00.000Z'),
+      lastModified: new Date('2026-01-01T02:00:00.000Z'),
+    } as any;
+
+    jest
+      .spyOn(recordService, 'adjustInventory')
+      .mockResolvedValue(restockedRecord);
 
     const result = await orderService.cancel('o1', {
       reason: 'Customer request',
     } as CancelOrderRequestDTO);
 
-    expect(recordModel.updateOne).toHaveBeenCalledWith(
-      { _id: 'r1', deletedAt: null },
-      { $inc: { qty: 2 } },
-    );
+    expect(recordService.adjustInventory).toHaveBeenCalledWith('r1', 2);
     expect(result.status).toEqual(OrderStatus.CANCELED);
-    expect(recordListCacheService.invalidateItem).toHaveBeenCalledWith('r1');
+    expect(recordListCacheService.invalidateItem).not.toHaveBeenCalled();
   });
 
   it('throws ConflictException when canceling an already canceled order', async () => {
@@ -342,6 +354,136 @@ describe('OrderService', () => {
     } as any);
 
     await expect(orderService.cancel('o1', {})).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('increases order quantity and debits inventory', async () => {
+    jest.spyOn(orderModel, 'findById').mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: 'o1',
+        recordId: 'r1',
+        quantity: 2,
+        unitPrice: 30,
+        totalPrice: 60,
+        status: OrderStatus.CREATED,
+        source: OrderSource.ADMIN,
+        save: jest.fn().mockResolvedValue({
+          _id: 'o1',
+          quantity: 3,
+          unitPrice: 30,
+          totalPrice: 90,
+          status: OrderStatus.CREATED,
+          source: OrderSource.ADMIN,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+        }),
+      }),
+    } as any);
+
+    const updatedRecord = {
+      _id: 'r1',
+      qty: 9,
+      price: 30,
+      created: new Date('2026-01-01T00:00:00.000Z'),
+      lastModified: new Date('2026-01-01T01:00:00.000Z'),
+    } as any;
+
+    jest
+      .spyOn(recordService, 'adjustInventory')
+      .mockResolvedValue(updatedRecord);
+
+    const result = await orderService.updateQuantity('o1', 3);
+
+    expect(recordService.adjustInventory).toHaveBeenCalledWith('r1', -1);
+    expect(result.quantity).toBe(3);
+    expect(result.totalPrice).toBe(90);
+  });
+
+  it('decreases order quantity and credits inventory', async () => {
+    jest.spyOn(orderModel, 'findById').mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: 'o1',
+        recordId: 'r1',
+        quantity: 3,
+        unitPrice: 30,
+        totalPrice: 90,
+        status: OrderStatus.CREATED,
+        source: OrderSource.ADMIN,
+        save: jest.fn().mockResolvedValue({
+          _id: 'o1',
+          quantity: 2,
+          unitPrice: 30,
+          totalPrice: 60,
+          status: OrderStatus.CREATED,
+          source: OrderSource.ADMIN,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+        }),
+      }),
+    } as any);
+
+    const updatedRecord = {
+      _id: 'r1',
+      qty: 11,
+      price: 30,
+      created: new Date('2026-01-01T00:00:00.000Z'),
+      lastModified: new Date('2026-01-01T01:00:00.000Z'),
+    } as any;
+
+    jest
+      .spyOn(recordService, 'adjustInventory')
+      .mockResolvedValue(updatedRecord);
+
+    const result = await orderService.updateQuantity('o1', 2);
+
+    expect(recordService.adjustInventory).toHaveBeenCalledWith('r1', 1);
+    expect(result.quantity).toBe(2);
+    expect(result.totalPrice).toBe(60);
+  });
+
+  it('throws BadRequestException when reducing quantity without sufficient inventory', async () => {
+    jest.spyOn(orderModel, 'findById').mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: 'o1',
+        recordId: 'r1',
+        quantity: 5,
+        status: OrderStatus.CREATED,
+      }),
+    } as any);
+
+    jest
+      .spyOn(recordService, 'adjustInventory')
+      .mockRejectedValue(
+        new BadRequestException(
+          'Insufficient stock. Available: 1, requested: 4',
+        ),
+      );
+
+    const error = await orderService.updateQuantity('o1', 1).catch((e) => e);
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect(error.message).toContain('Insufficient stock');
+  });
+
+  it('throws NotFoundException when order not found for updateQuantity', async () => {
+    jest.spyOn(orderModel, 'findById').mockReturnValue({
+      exec: jest.fn().mockResolvedValue(null),
+    } as any);
+
+    await expect(
+      orderService.updateQuantity('missing', 2),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws ConflictException when updating quantity on immutable order', async () => {
+    jest.spyOn(orderModel, 'findById').mockReturnValue({
+      exec: jest.fn().mockResolvedValue({
+        _id: 'o1',
+        status: OrderStatus.CANCELED,
+      }),
+    } as any);
+
+    await expect(orderService.updateQuantity('o1', 5)).rejects.toBeInstanceOf(
       ConflictException,
     );
   });

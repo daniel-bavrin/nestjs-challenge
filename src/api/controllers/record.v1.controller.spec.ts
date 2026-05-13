@@ -30,8 +30,11 @@ describe('RecordV1Controller', () => {
           useValue: {
             create: jest.fn(),
             update: jest.fn(),
+            findOne: jest.fn(),
             findAll: jest.fn(),
             softDelete: jest.fn(),
+            fillTracklistNow: jest.fn(),
+            clearTracklistNow: jest.fn(),
           },
         },
       ],
@@ -144,5 +147,51 @@ describe('RecordV1Controller', () => {
     await recordController.remove('1');
 
     expect(recordService.softDelete).toHaveBeenCalledWith('1');
+  });
+
+  it('should fill and return tracklist for record', async () => {
+    const updatedRecord: RecordResponse = {
+      _id: '1',
+      artist: 'Test',
+      album: 'Test Record',
+      price: 100,
+      qty: 5,
+      category: RecordCategory.ALTERNATIVE,
+      format: RecordFormat.VINYL,
+      tracklist: [{ position: 1, title: 'Song A' }],
+      ...timestamps,
+    } as unknown as RecordResponse;
+
+    jest
+      .spyOn(recordService, 'fillTracklistNow')
+      .mockResolvedValue(updatedRecord);
+
+    const result = await recordController.fillTracklist('1');
+
+    expect(result).toEqual(updatedRecord);
+    expect(recordService.fillTracklistNow).toHaveBeenCalledWith('1');
+  });
+
+  it('should clear and return tracklist for record', async () => {
+    const updatedRecord: RecordResponse = {
+      _id: '1',
+      artist: 'Test',
+      album: 'Test Record',
+      price: 100,
+      qty: 5,
+      category: RecordCategory.ALTERNATIVE,
+      format: RecordFormat.VINYL,
+      tracklist: [],
+      ...timestamps,
+    } as unknown as RecordResponse;
+
+    jest
+      .spyOn(recordService, 'clearTracklistNow')
+      .mockResolvedValue(updatedRecord);
+
+    const result = await recordController.clearTracklist('1');
+
+    expect(result).toEqual(updatedRecord);
+    expect(recordService.clearTracklistNow).toHaveBeenCalledWith('1');
   });
 });
